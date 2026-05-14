@@ -1,0 +1,11 @@
+version: '3.8'
+services:
+  cloud-agent:
+    image: ghcr.io/hyperledger/identus-cloud-agent:latest
+    environment:
+      - AGENT_NAME=zivana-identus
+      - CARDANO_NETWORK=preprod
+      - BLOCKFROST_API_KEY=${BLOCKFROST_API_KEY}
+      - WALLET_SEED=0x0000000000000000000000000000000000000000000000000000000000000000
+    ports:
+      - "8080:8080"
