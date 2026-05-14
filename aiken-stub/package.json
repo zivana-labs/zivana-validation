@@ -1,0 +1,11 @@
+{
+  "name": "aiken-stub",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "aiken build",
+    "test": "aiken check"
+  },
+  "dependencies": {
+    "lucid-cardano": "^0.12.0"
+  }
+}
