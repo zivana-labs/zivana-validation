@@ -1,0 +1,11 @@
+{
+  "name": "orcfax-schema",
+  "scripts": {
+    "publish": "ts-node scripts/publish-fact.ts",
+    "query": "ts-node scripts/query-fact.ts"
+  },
+  "dependencies": {
+    "lucid-cardano": "^0.12.0",
+    "axios": "^1.0.0"
+  }
+}
