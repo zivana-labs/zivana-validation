@@ -1,0 +1,12 @@
+{
+  "name": "celo-minipay",
+  "scripts": {
+    "compile": "hardhat compile",
+    "deploy": "hardhat run scripts/deploy.ts --network alfajores",
+    "simulate": "hardhat run scripts/simulate.ts --network alfajores"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^3.0.0",
+    "hardhat": "^2.18.0"
+  }
+}
