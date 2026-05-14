@@ -1,0 +1,8 @@
+name = "distribution-stub"
+version = "0.1.0"
+compiler = "v1.1.0"
+
+[repository]
+url = "https://github.com/zivana-labs/zivana-validation"
+
+[dependencies]
