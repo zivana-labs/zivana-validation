@@ -1,0 +1,20 @@
+{
+  "@context": "https://schema.org",
+  "@type": "Claim",
+  "identifier": "zivana-revenue-001",
+  "dateCreated": "2026-05-15T10:00:00Z",
+  "text": "SME revenue for period 2026-05-01/2026-05-14",
+  "about": {
+    "@type": "EconomicEvent",
+    "value": 500000,
+    "currency": "NGN",
+    "startDate": "2026-05-01",
+    "endDate": "2026-05-14",
+    "provider": {
+      "@type": "Person",
+      "identifier": "did:prism:123...",
+      "name": "SME Operator"
+    }
+  },
+  "claimInterpreter": "zivana-oracle"
+}
