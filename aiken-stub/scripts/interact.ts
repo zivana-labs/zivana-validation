@@ -48,8 +48,10 @@ const WALLET_SEED =
 // The tag the redeemer must carry (UTF-8 → hex). Must match distribution.ak.
 const DISTRIBUTION_TAG: string = fromText("zivana-distribute");
 
-// Distribution epoch — must be > 0 (second required condition in the validator).
-const DISTRIBUTION_EPOCH = 1n;
+// Release epoch stored in the datum at lock time.
+// The redeemer must supply the same value — prevents spenders from
+// supplying an arbitrary epoch > 0.
+const RELEASE_EPOCH = 1n;
 
 // ---------------------------------------------------------------------------
 // Load compiled validator from plutus.json (output of `aiken build`)
@@ -74,8 +76,15 @@ const validator: Script = {
 // Datum & Redeemer encoding (Plutus CBOR)
 // ---------------------------------------------------------------------------
 
-function buildDatum(ownerPkh: string, b1Pkh: string, b2Pkh: string): string {
-  return Data.to(new Constr(0, [ownerPkh, b1Pkh, b2Pkh]));
+function buildDatum(
+  ownerPkh: string,
+  b1Pkh: string,
+  b2Pkh: string,
+  releaseEpoch: bigint
+): string {
+  // Datum field order matches distribution.ak:
+  // Datum { owner, beneficiary1, beneficiary2, release_epoch }
+  return Data.to(new Constr(0, [ownerPkh, b1Pkh, b2Pkh, releaseEpoch]));
 }
 
 function buildRedeemer(tag: string, epoch: bigint): string {
@@ -121,7 +130,7 @@ async function main() {
   if (!lockTxHash) {
     console.log("Step 1: Locking 10 ADA in the validator...");
 
-    const datum = buildDatum(walletPkh, beneficiary1Pkh, beneficiary2Pkh);
+    const datum = buildDatum(walletPkh, beneficiary1Pkh, beneficiary2Pkh, RELEASE_EPOCH);
 
     const lockTxSignBuilder = await lucid
       .newTx()
@@ -173,17 +182,17 @@ async function main() {
   if (!collateralUtxo) throw new Error("No UTxO ≥ 5 ADA available for collateral.");
   console.log("Collateral UTxO:", collateralUtxo.txHash, "#" + collateralUtxo.outputIndex);
 
-  const redeemer = buildRedeemer(DISTRIBUTION_TAG, DISTRIBUTION_EPOCH);
+  const redeemer = buildRedeemer(DISTRIBUTION_TAG, RELEASE_EPOCH);
 
   const distTxSignBuilder = await lucid
     .newTx()
     .collectFrom([lockedUtxo], redeemer)
     .attach.SpendingValidator(validator)
+    // Owner must sign — validator checks tx.extra_signatories contains datum.owner.
+    .addSignerKey(walletPkh)
     .pay.ToAddress(walletAddress, { lovelace: 4_000_000n }) // beneficiary1
     .pay.ToAddress(walletAddress, { lovelace: 4_000_000n }) // beneficiary2
     .complete({
-      // Skip local WASM evaluation — let the node compute execution costs.
-      // This avoids collateral miscalculation from local evaluator.
       localUPLCEval: false,
       setCollateral: 5_000_000n,
     });
