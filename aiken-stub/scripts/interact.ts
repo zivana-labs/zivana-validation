@@ -43,7 +43,7 @@ const BLOCKFROST_URL = "https://cardano-preprod.blockfrost.io/api/v0";
 // Default test seed — NEVER use for real funds.
 const WALLET_SEED =
   process.env.WALLET_SEED ??
-  "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
+  "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
 
 // The tag the redeemer must carry (UTF-8 → hex). Must match distribution.ak.
 const DISTRIBUTION_TAG: string = fromText("zivana-distribute");
@@ -113,27 +113,38 @@ async function main() {
 
   // -------------------------------------------------------------------------
   // Step 1 — Lock 10 ADA in the validator
+  // Set LOCK_TX_HASH env var to skip this step and go straight to distribute.
   // -------------------------------------------------------------------------
 
-  console.log("Step 1: Locking 10 ADA in the validator...");
+  let lockTxHash = process.env.LOCK_TX_HASH ?? "";
 
-  const datum = buildDatum(walletPkh, beneficiary1Pkh, beneficiary2Pkh);
+  if (!lockTxHash) {
+    console.log("Step 1: Locking 10 ADA in the validator...");
 
-  const lockTxSignBuilder = await lucid
-    .newTx()
-    .pay.ToContract(contractAddress, { kind: "inline", value: datum }, { lovelace: 10_000_000n })
-    .complete();
+    const datum = buildDatum(walletPkh, beneficiary1Pkh, beneficiary2Pkh);
 
-  const lockTxHash = await (await lockTxSignBuilder.sign.withWallet().complete()).submit();
+    const lockTxSignBuilder = await lucid
+      .newTx()
+      .pay.ToContract(contractAddress, { kind: "inline", value: datum }, { lovelace: 10_000_000n })
+      .complete();
 
-  console.log("Lock TX submitted:", lockTxHash);
-  console.log("View on explorer : https://preprod.cardanoscan.io/transaction/" + lockTxHash);
-  console.log();
+    lockTxHash = await (await lockTxSignBuilder.sign.withWallet().complete()).submit();
 
-  console.log("Waiting for confirmation (this may take ~20 seconds)...");
-  await lucid.awaitTx(lockTxHash);
-  console.log("Lock TX confirmed.");
-  console.log();
+    console.log("Lock TX submitted:", lockTxHash);
+    console.log("View on explorer : https://preprod.cardanoscan.io/transaction/" + lockTxHash);
+    console.log();
+
+    console.log("Waiting for confirmation (this may take ~20 seconds)...");
+    await lucid.awaitTx(lockTxHash);
+    console.log("Lock TX confirmed. Waiting 15s for Blockfrost to index...");
+    await new Promise((r) => setTimeout(r, 15_000));
+    console.log();
+  } else {
+    console.log("Step 1: Skipped (using LOCK_TX_HASH =", lockTxHash, ")");
+    console.log("Waiting 5s for Blockfrost state to settle...");
+    await new Promise((r) => setTimeout(r, 5_000));
+    console.log();
+  }
 
   // -------------------------------------------------------------------------
   // Step 2 — Distribute: collect the locked UTxO, pay both beneficiaries
@@ -141,11 +152,26 @@ async function main() {
 
   console.log("Step 2: Distributing to beneficiaries...");
 
-  const contractUtxos = await lucid.utxosAt(contractAddress);
-  const lockedUtxo = contractUtxos.find((u) => u.txHash === lockTxHash);
+  // Fetch fresh UTxOs — avoids using stale pre-lock wallet UTxOs for fees.
+  const [contractUtxos, walletUtxos] = await Promise.all([
+    lucid.utxosAt(contractAddress),
+    lucid.utxosAt(walletAddress),
+  ]);
+
+  const lockedUtxo = contractUtxos.find(
+    (u) => u.txHash === lockTxHash && u.assets.lovelace >= 9_000_000n
+  );
   if (!lockedUtxo) {
     throw new Error("Could not find the locked UTxO after confirmation.");
   }
+  console.log("Locked UTxO:", lockedUtxo.txHash, "#" + lockedUtxo.outputIndex);
+
+  // Pick the largest wallet UTxO as collateral (must cover 150% of tx fee).
+  const collateralUtxo = walletUtxos
+    .filter((u) => u.assets.lovelace >= 5_000_000n)
+    .sort((a, b) => Number(b.assets.lovelace - a.assets.lovelace))[0];
+  if (!collateralUtxo) throw new Error("No UTxO ≥ 5 ADA available for collateral.");
+  console.log("Collateral UTxO:", collateralUtxo.txHash, "#" + collateralUtxo.outputIndex);
 
   const redeemer = buildRedeemer(DISTRIBUTION_TAG, DISTRIBUTION_EPOCH);
 
@@ -155,7 +181,12 @@ async function main() {
     .attach.SpendingValidator(validator)
     .pay.ToAddress(walletAddress, { lovelace: 4_000_000n }) // beneficiary1
     .pay.ToAddress(walletAddress, { lovelace: 4_000_000n }) // beneficiary2
-    .complete();
+    .complete({
+      // Skip local WASM evaluation — let the node compute execution costs.
+      // This avoids collateral miscalculation from local evaluator.
+      localUPLCEval: false,
+      setCollateral: 5_000_000n,
+    });
 
   const distTxHash = await (await distTxSignBuilder.sign.withWallet().complete()).submit();
 
