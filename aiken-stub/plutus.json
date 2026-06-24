@@ -1,0 +1,90 @@
+{
+  "preamble": {
+    "title": "zivana-labs/distribution-stub",
+    "version": "0.1.0",
+    "plutusVersion": "v3",
+    "compiler": {
+      "name": "Aiken",
+      "version": "v1.1.22+39d6b04"
+    }
+  },
+  "validators": [
+    {
+      "title": "distribution.distribution.spend",
+      "datum": {
+        "title": "datum",
+        "schema": {
+          "$ref": "#/definitions/distribution~1Datum"
+        }
+      },
+      "redeemer": {
+        "title": "redeemer",
+        "schema": {
+          "$ref": "#/definitions/distribution~1Redeemer"
+        }
+      },
+      "compiledCode": "59017001010029800aba2aba1aab9faab9eaab9dab9a48888896600264653001300700198039804000cc01c0092225980099b8748008c01cdd500144ca60026016003300b300c0019b874800122259800980098059baa0078991919912cc004c04c00e2b30013005300f375400d19800980918081baa00698081baa00b91809980a180a000c88c8cc00400400c896600200314a1159800992cc004c028c050dd5000c4cdc79bae30173015375400200914a08098c058c050dd5180b180a1baa30160018a51899801001180b800a024405491112cc004cdc7a441117a6976616e612d6469737472696275746500375c602c00715980099b8848000dd6980b180b801c566002660026eb0c008c050dd50069bae30163017301437540091330013758600460286ea8034dd71801180a1baa0048a50404914a0809229410122294100e4590111bad3010001375c6020004602000260186ea801e2c805060106ea800a2c8030600e00260066ea801e29344d9590011",
+      "hash": "afed0f57d5860d3780e0d2a44f4fc5f229faf7b21d9eaba670e1be8a"
+    },
+    {
+      "title": "distribution.distribution.else",
+      "redeemer": {
+        "schema": {}
+      },
+      "compiledCode": "59017001010029800aba2aba1aab9faab9eaab9dab9a48888896600264653001300700198039804000cc01c0092225980099b8748008c01cdd500144ca60026016003300b300c0019b874800122259800980098059baa0078991919912cc004c04c00e2b30013005300f375400d19800980918081baa00698081baa00b91809980a180a000c88c8cc00400400c896600200314a1159800992cc004c028c050dd5000c4cdc79bae30173015375400200914a08098c058c050dd5180b180a1baa30160018a51899801001180b800a024405491112cc004cdc7a441117a6976616e612d6469737472696275746500375c602c00715980099b8848000dd6980b180b801c566002660026eb0c008c050dd50069bae30163017301437540091330013758600460286ea8034dd71801180a1baa0048a50404914a0809229410122294100e4590111bad3010001375c6020004602000260186ea801e2c805060106ea800a2c8030600e00260066ea801e29344d9590011",
+      "hash": "afed0f57d5860d3780e0d2a44f4fc5f229faf7b21d9eaba670e1be8a"
+    }
+  ],
+  "definitions": {
+    "ByteArray": {
+      "dataType": "bytes"
+    },
+    "Int": {
+      "dataType": "integer"
+    },
+    "distribution/Datum": {
+      "title": "Datum",
+      "anyOf": [
+        {
+          "title": "Datum",
+          "dataType": "constructor",
+          "index": 0,
+          "fields": [
+            {
+              "title": "owner",
+              "$ref": "#/definitions/ByteArray"
+            },
+            {
+              "title": "beneficiary1",
+              "$ref": "#/definitions/ByteArray"
+            },
+            {
+              "title": "beneficiary2",
+              "$ref": "#/definitions/ByteArray"
+            }
+          ]
+        }
+      ]
+    },
+    "distribution/Redeemer": {
+      "title": "Redeemer",
+      "anyOf": [
+        {
+          "title": "Distribute",
+          "dataType": "constructor",
+          "index": 0,
+          "fields": [
+            {
+              "title": "tag",
+              "$ref": "#/definitions/ByteArray"
+            },
+            {
+              "title": "epoch",
+              "$ref": "#/definitions/Int"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
