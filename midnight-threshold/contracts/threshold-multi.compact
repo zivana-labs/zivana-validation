@@ -1,0 +1,76 @@
+pragma language_version >= 0.22;
+
+import CompactStandardLibrary;
+
+// === Extension over threshold.compact ===
+// Adds a second public threshold tier and a single parameterized
+// circuit that proves the caller's private score clears whichever
+// tier was requested, without revealing the score itself.
+
+export enum Tier {
+  LOW,
+  HIGH
+}
+
+// === Public ledger state ===
+// Two independent public bars a participant can choose to prove
+// against. Both are visible on-chain; neither reveals anything about
+// any individual participant's actual score.
+export ledger thresholdLow: Uint<64>;
+export ledger thresholdHigh: Uint<64>;
+
+// The most recent proof result and which tier it was checked against.
+// Public, but reveals nothing about the actual score that produced
+// it - only which bar was checked and whether it was cleared.
+//
+// Design choice (carried over from threshold.compact): proveThreshold()
+// always succeeds as a transaction and discloses true or false
+// symmetrically. It never asserts/aborts on a failed proof, so a
+// failed check is indistinguishable in shape from a passed one at the
+// transaction level.
+export ledger lastResult: Boolean;
+export ledger lastTier: Tier;
+
+constructor(initialLow: Uint<64>, initialHigh: Uint<64>) {
+  thresholdLow = disclose(initialLow);
+  thresholdHigh = disclose(initialHigh);
+  lastResult = false;
+  lastTier = Tier.LOW;
+}
+
+// === Private witness ===
+// score is supplied locally, off-chain, by the participant's own
+// TypeScript code at proof-generation time. It never appears in any
+// network message, on-chain transaction, or ledger field. The same
+// witness serves both tiers - the tier only changes which public
+// ledger value the score is compared against.
+witness score(): Uint<64>;
+
+// === Circuits ===
+
+// Update either public threshold. Anyone can call this in this
+// minimal version; a production version would gate it behind an
+// authority check (see README "Known limitations").
+export circuit setThresholdLow(newThreshold: Uint<64>): [] {
+  thresholdLow = disclose(newThreshold);
+}
+
+export circuit setThresholdHigh(newThreshold: Uint<64>): [] {
+  thresholdHigh = disclose(newThreshold);
+}
+
+// Prove that the caller's private score is >= the threshold for the
+// requested tier, without revealing the score itself. Only the
+// boolean outcome and the tier checked are written to the ledger via
+// disclose(). This circuit always produces a valid transaction; it
+// never aborts based on the witness value.
+export circuit proveThreshold(tier: Tier): [] {
+  const s = score();
+  const publicTier = disclose(tier);
+  if (publicTier == Tier.HIGH) {
+    lastResult = disclose(s >= thresholdHigh);
+  } else {
+    lastResult = disclose(s >= thresholdLow);
+  }
+  lastTier = publicTier;
+}
