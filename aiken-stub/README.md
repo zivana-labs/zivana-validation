@@ -63,15 +63,25 @@ aiken build                  # generates plutus.json
 aiken check
 ```
 
-Expected output: **5 tests, 5 passed, 0 failed**
+Expected output: **9 tests, 9 passed, 0 failed**
 
-| Test | Checks |
-|------|--------|
-| `distribute_valid` | correct tag + epoch > 0 |
-| `distribute_wrong_tag_rejected` | wrong tag → False |
-| `distribute_zero_epoch_rejected` | epoch = 0 → False |
-| `distribute_negative_epoch_rejected` | epoch < 0 → False |
-| `distribute_valid_epoch_accepted` | epoch > 0 → True |
+Every test constructs a real `Datum` / `Redeemer` / `Transaction` and invokes the
+actual `distribution.spend` handler, asserting on its return value — they do not
+re-implement the validator's logic. Mutating the validator body to `True` makes
+the seven rejection tests fail, so a passing run is genuine evidence the
+validator enforces each condition.
+
+| Test | Invokes `spend` with | Expect |
+|------|----------------------|--------|
+| `distribute_valid` | all four conditions satisfied | True |
+| `distribute_wrong_tag_rejected` | tag ≠ `"zivana-distribute"` | False |
+| `distribute_epoch_mismatch_rejected` | redeemer epoch ≠ datum `release_epoch` | False |
+| `distribute_zero_epoch_rejected` | epoch = 0 (matches datum, fails > 0) | False |
+| `distribute_negative_epoch_rejected` | epoch = -1 | False |
+| `distribute_owner_not_signed_rejected` | owner absent from `extra_signatories` | False |
+| `distribute_missing_beneficiary1_rejected` | only beneficiary2 paid | False |
+| `distribute_missing_beneficiary2_rejected` | only beneficiary1 paid | False |
+| `distribute_no_datum_rejected` | `None` datum | False |
 
 ---
 
@@ -92,10 +102,13 @@ export BLOCKFROST_PROJECT_ID="preprodXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 # REQUIRED: your own funded 24-word preprod seed phrase.
 export WALLET_SEED="word1 word2 ... word24"
 
-# Optional: distinct beneficiary payout addresses.
-# If unset, both default to the wallet itself (demo only) and a warning prints.
+# Distinct beneficiary payout addresses (required unless DEMO_MODE=true).
 export BENEFICIARY1_ADDRESS="addr_test1..."
 export BENEFICIARY2_ADDRESS="addr_test1..."
+
+# Or, to intentionally send both payouts to your own wallet (no distinct
+# addresses), opt in explicitly — the script refuses to do this silently:
+# export DEMO_MODE=true
 
 npx ts-node scripts/interact.ts
 ```
@@ -155,7 +168,8 @@ aiken-stub/
 ## Acceptance criteria
 
 - [x] Validator compiles with `aiken build` (Aiken v1.1.22, stdlib v2.2.0)
-- [x] All tests pass with `aiken check` (5/5)
+- [x] All tests pass with `aiken check` (9/9)
+- [x] Tests invoke `distribution.spend` directly (not re-implemented logic); each of the four conditions has a satisfied and a rejecting case
 - [x] `interact.ts` loads `plutus.json`, constructs datum/redeemer, submits lock and distribute transactions
 - [x] Extended validator requires `epoch > 0` and rejects `epoch ≤ 0`
 - [x] New test `distribute_zero_epoch_rejected` exercises the extension

@@ -11,8 +11,9 @@
  *    Get one free at https://blockfrost.io
  *  - WALLET_SEED env var REQUIRED — a 24-word seed phrase funded with preprod ADA.
  *    Get preprod ADA at https://docs.cardano.org/cardano-testnet/tools/faucet
- *  - Optional: BENEFICIARY1_ADDRESS / BENEFICIARY2_ADDRESS — distinct payout
- *    addresses. If unset, both default to the wallet (demo only, prints a warning).
+ *  - BENEFICIARY1_ADDRESS / BENEFICIARY2_ADDRESS — distinct payout addresses.
+ *    Required unless DEMO_MODE=true, which opts in to sending both payouts to
+ *    the wallet itself. Missing addresses without DEMO_MODE is a hard error.
  *  - `aiken build` already run (plutus.json must exist in parent directory).
  *
  * Usage:
@@ -121,11 +122,25 @@ async function main() {
   console.log();
 
   // Beneficiary payout targets. In production set BENEFICIARY1_ADDRESS and
-  // BENEFICIARY2_ADDRESS to distinct funded preprod addresses. If unset, both
-  // fall back to the wallet itself (demo only) and we print a warning.
+  // BENEFICIARY2_ADDRESS to distinct funded preprod addresses.
+  //
+  // This script moves real (testnet) funds, so defaulting both payouts to the
+  // wallet itself is an explicit opt-in, not a silent fallback: it requires
+  // DEMO_MODE=true. Without it, missing addresses are a hard error.
+  const DEMO_MODE = process.env.DEMO_MODE === "true";
+  const haveBothAddrs =
+    !!process.env.BENEFICIARY1_ADDRESS && !!process.env.BENEFICIARY2_ADDRESS;
+
+  if (!haveBothAddrs && !DEMO_MODE) {
+    throw new Error(
+      "Set BENEFICIARY1_ADDRESS and BENEFICIARY2_ADDRESS to distinct payout addresses, " +
+        "or pass DEMO_MODE=true to intentionally send both payouts to your own wallet."
+    );
+  }
+
   function resolveBeneficiary(envVar: string, label: string) {
     const addr = process.env[envVar];
-    if (!addr) return { address: walletAddress, pkh: walletPkh };
+    if (!addr) return { address: walletAddress, pkh: walletPkh }; // DEMO_MODE only
     const pkh = getAddressDetails(addr).paymentCredential?.hash;
     if (!pkh) throw new Error(`${label}: could not extract payment key hash from ${envVar}.`);
     return { address: addr, pkh };
@@ -136,9 +151,9 @@ async function main() {
   const beneficiary1Pkh = beneficiary1.pkh;
   const beneficiary2Pkh = beneficiary2.pkh;
 
-  if (!process.env.BENEFICIARY1_ADDRESS || !process.env.BENEFICIARY2_ADDRESS) {
+  if (!haveBothAddrs) {
     console.warn(
-      "WARNING: beneficiary address(es) not set — defaulting to the wallet. " +
+      "WARNING: DEMO_MODE — beneficiary address(es) not set, both payouts go to the wallet. " +
         "Set BENEFICIARY1_ADDRESS / BENEFICIARY2_ADDRESS to distinct addresses for production.\n"
     );
   }
