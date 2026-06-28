@@ -77,7 +77,7 @@ Expected output: **5 tests, 5 passed, 0 failed**
 
 ## Obtaining preprod ADA
 
-1. Run `npx ts-node scripts/interact.ts` once (without `BLOCKFROST_PROJECT_ID` set) — it prints the wallet address.
+1. With `WALLET_SEED` set, run `npx ts-node scripts/interact.ts` — it prints the wallet address before submitting.
 2. Visit the [Cardano preprod faucet](https://docs.cardano.org/cardano-testnet/tools/faucet).
 3. Select **Preview/Preprod**, paste the wallet address, request funds.
 4. Wait ~1 minute for the faucet transaction to confirm.
@@ -89,11 +89,19 @@ Expected output: **5 tests, 5 passed, 0 failed**
 ```bash
 export BLOCKFROST_PROJECT_ID="preprodXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 
-# Optional: use your own funded seed phrase
+# REQUIRED: your own funded 24-word preprod seed phrase.
 export WALLET_SEED="word1 word2 ... word24"
+
+# Optional: distinct beneficiary payout addresses.
+# If unset, both default to the wallet itself (demo only) and a warning prints.
+export BENEFICIARY1_ADDRESS="addr_test1..."
+export BENEFICIARY2_ADDRESS="addr_test1..."
 
 npx ts-node scripts/interact.ts
 ```
+
+> **Security:** never commit a real seed phrase. The script refuses to run
+> without `WALLET_SEED` rather than fall back to a well-known public seed.
 
 The script:
 1. Locks **10 ADA** in the validator.
@@ -113,6 +121,17 @@ This implementation adds:
 - **Extended**: A second required field `epoch: Int > 0` in the redeemer, representing a valid distribution epoch. Any transaction that supplies `epoch = 0` or a negative value will be rejected by the validator.
 
 Relevant code: [`validators/distribution.ak`](validators/distribution.ak)
+
+---
+
+## Note on `plutus.json`
+
+`plutus.json` lists two validator entries — `distribution.distribution.spend`
+and `distribution.distribution.else` — with **identical `compiledCode` and the
+same `hash`**. This is expected Aiken behaviour: the `else` clause compiles into
+the same script (it just `fail`s on the unmatched branch). They are the same
+on-chain script, not two deployments. The interact script targets the `.spend`
+entry.
 
 ---
 

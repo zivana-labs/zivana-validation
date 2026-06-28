@@ -9,9 +9,10 @@
  * Prerequisites:
  *  - BLOCKFROST_PROJECT_ID env var set to your preprod API key.
  *    Get one free at https://blockfrost.io
- *  - WALLET_SEED env var set to a 24-word seed phrase funded with preprod ADA.
+ *  - WALLET_SEED env var REQUIRED — a 24-word seed phrase funded with preprod ADA.
  *    Get preprod ADA at https://docs.cardano.org/cardano-testnet/tools/faucet
- *    Default falls back to the well-known "abandon...art" test seed — fund it first.
+ *  - Optional: BENEFICIARY1_ADDRESS / BENEFICIARY2_ADDRESS — distinct payout
+ *    addresses. If unset, both default to the wallet (demo only, prints a warning).
  *  - `aiken build` already run (plutus.json must exist in parent directory).
  *
  * Usage:
@@ -40,10 +41,14 @@ const BLOCKFROST_PROJECT_ID =
 
 const BLOCKFROST_URL = "https://cardano-preprod.blockfrost.io/api/v0";
 
-// Default test seed — NEVER use for real funds.
-const WALLET_SEED =
-  process.env.WALLET_SEED ??
-  "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
+// Wallet seed is required
+const WALLET_SEED = process.env.WALLET_SEED;
+if (!WALLET_SEED) {
+  throw new Error(
+    "WALLET_SEED env var is required. Set it to a 24-word preprod seed phrase. " +
+      "There is intentionally no default seed — a public/shared seed can be drained by anyone."
+  );
+}
 
 // The tag the redeemer must carry (UTF-8 → hex). Must match distribution.ak.
 const DISTRIBUTION_TAG: string = fromText("zivana-distribute");
@@ -115,10 +120,28 @@ async function main() {
   console.log("Contract address:", contractAddress);
   console.log();
 
-  // For the demo both beneficiaries resolve to the wallet itself.
-  // Replace with distinct preprod addresses in production.
-  const beneficiary1Pkh = walletPkh;
-  const beneficiary2Pkh = walletPkh;
+  // Beneficiary payout targets. In production set BENEFICIARY1_ADDRESS and
+  // BENEFICIARY2_ADDRESS to distinct funded preprod addresses. If unset, both
+  // fall back to the wallet itself (demo only) and we print a warning.
+  function resolveBeneficiary(envVar: string, label: string) {
+    const addr = process.env[envVar];
+    if (!addr) return { address: walletAddress, pkh: walletPkh };
+    const pkh = getAddressDetails(addr).paymentCredential?.hash;
+    if (!pkh) throw new Error(`${label}: could not extract payment key hash from ${envVar}.`);
+    return { address: addr, pkh };
+  }
+
+  const beneficiary1 = resolveBeneficiary("BENEFICIARY1_ADDRESS", "Beneficiary 1");
+  const beneficiary2 = resolveBeneficiary("BENEFICIARY2_ADDRESS", "Beneficiary 2");
+  const beneficiary1Pkh = beneficiary1.pkh;
+  const beneficiary2Pkh = beneficiary2.pkh;
+
+  if (!process.env.BENEFICIARY1_ADDRESS || !process.env.BENEFICIARY2_ADDRESS) {
+    console.warn(
+      "WARNING: beneficiary address(es) not set — defaulting to the wallet. " +
+        "Set BENEFICIARY1_ADDRESS / BENEFICIARY2_ADDRESS to distinct addresses for production.\n"
+    );
+  }
 
   // -------------------------------------------------------------------------
   // Step 1 — Lock 10 ADA in the validator
@@ -190,8 +213,8 @@ async function main() {
     .attach.SpendingValidator(validator)
     // Owner must sign — validator checks tx.extra_signatories contains datum.owner.
     .addSignerKey(walletPkh)
-    .pay.ToAddress(walletAddress, { lovelace: 4_000_000n }) // beneficiary1
-    .pay.ToAddress(walletAddress, { lovelace: 4_000_000n }) // beneficiary2
+    .pay.ToAddress(beneficiary1.address, { lovelace: 4_000_000n }) // beneficiary1
+    .pay.ToAddress(beneficiary2.address, { lovelace: 4_000_000n }) // beneficiary2
     .complete({
       localUPLCEval: false,
       setCollateral: 5_000_000n,
