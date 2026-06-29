@@ -1,0 +1,12 @@
+# Environment variables (contains seeds/API keys — never commit these)
+.env
+
+# Node
+node_modules/
+
+# Aiken build output
+aiken-stub/build/
+
+# OS
+.DS_Store
+Thumbs.db
