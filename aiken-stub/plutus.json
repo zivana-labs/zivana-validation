@@ -1,0 +1,94 @@
+{
+  "preamble": {
+    "title": "zivana-labs/distribution-stub",
+    "version": "0.1.0",
+    "plutusVersion": "v3",
+    "compiler": {
+      "name": "Aiken",
+      "version": "v1.1.22+39d6b04"
+    }
+  },
+  "validators": [
+    {
+      "title": "distribution.distribution.spend",
+      "datum": {
+        "title": "datum",
+        "schema": {
+          "$ref": "#/definitions/distribution~1Datum"
+        }
+      },
+      "redeemer": {
+        "title": "redeemer",
+        "schema": {
+          "$ref": "#/definitions/distribution~1Redeemer"
+        }
+      },
+      "compiledCode": "5901e101010029800aba2aba1aab9faab9eaab9dab9a48888896600264653001300700198039804000cc01c0092225980099b8748008c01cdd500144ca60026016003300b300c0019b874800122259800980098059baa0078991919912cc004c04c00e2b30013005300f375400d19800980918081baa00698081baa00b91809980a180a000c88c8cc00400400c896600200314a1159800992cc004c028c050dd5000c4cdc79bae30173015375400200914a08098c058c050dd5180b180a1baa30160018a51899801001180b800a02440549111192cc004cdc7a441117a6976616e612d6469737472696275746500375c602e009159800acc004cdc38009bad30173018301830183015375400b1337109000000c52820268acc004c8cc88cc008008004896600200314a115980099b8f375c603400200714a3133002002301b001405880c8dd6180c180c980c980c980c980c980c980c980c980b1baa00f375c602e602a6ea80162b30013300237586006602a6ea8038dd7180b980c180a9baa0058998011bac30033015375401c6eb8c00cc054dd5002c52820268a50404d14a0809a29410131bad301630170034528201c8b2022375a60200026eb8c040008c040004c030dd5003c5900a0c020dd50014590060c01c004c00cdd5003c52689b2b200201",
+      "hash": "ed6d3324dec62c49636e8bc3dc18168fee94b61402a107a65550f2f6"
+    },
+    {
+      "title": "distribution.distribution.else",
+      "redeemer": {
+        "schema": {}
+      },
+      "compiledCode": "5901e101010029800aba2aba1aab9faab9eaab9dab9a48888896600264653001300700198039804000cc01c0092225980099b8748008c01cdd500144ca60026016003300b300c0019b874800122259800980098059baa0078991919912cc004c04c00e2b30013005300f375400d19800980918081baa00698081baa00b91809980a180a000c88c8cc00400400c896600200314a1159800992cc004c028c050dd5000c4cdc79bae30173015375400200914a08098c058c050dd5180b180a1baa30160018a51899801001180b800a02440549111192cc004cdc7a441117a6976616e612d6469737472696275746500375c602e009159800acc004cdc38009bad30173018301830183015375400b1337109000000c52820268acc004c8cc88cc008008004896600200314a115980099b8f375c603400200714a3133002002301b001405880c8dd6180c180c980c980c980c980c980c980c980c980b1baa00f375c602e602a6ea80162b30013300237586006602a6ea8038dd7180b980c180a9baa0058998011bac30033015375401c6eb8c00cc054dd5002c52820268a50404d14a0809a29410131bad301630170034528201c8b2022375a60200026eb8c040008c040004c030dd5003c5900a0c020dd50014590060c01c004c00cdd5003c52689b2b200201",
+      "hash": "ed6d3324dec62c49636e8bc3dc18168fee94b61402a107a65550f2f6"
+    }
+  ],
+  "definitions": {
+    "ByteArray": {
+      "dataType": "bytes"
+    },
+    "Int": {
+      "dataType": "integer"
+    },
+    "distribution/Datum": {
+      "title": "Datum",
+      "anyOf": [
+        {
+          "title": "Datum",
+          "dataType": "constructor",
+          "index": 0,
+          "fields": [
+            {
+              "title": "owner",
+              "$ref": "#/definitions/ByteArray"
+            },
+            {
+              "title": "beneficiary1",
+              "$ref": "#/definitions/ByteArray"
+            },
+            {
+              "title": "beneficiary2",
+              "$ref": "#/definitions/ByteArray"
+            },
+            {
+              "title": "release_epoch",
+              "$ref": "#/definitions/Int"
+            }
+          ]
+        }
+      ]
+    },
+    "distribution/Redeemer": {
+      "title": "Redeemer",
+      "anyOf": [
+        {
+          "title": "Distribute",
+          "dataType": "constructor",
+          "index": 0,
+          "fields": [
+            {
+              "title": "tag",
+              "$ref": "#/definitions/ByteArray"
+            },
+            {
+              "title": "epoch",
+              "$ref": "#/definitions/Int"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

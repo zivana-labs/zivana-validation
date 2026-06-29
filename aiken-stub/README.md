@@ -1,21 +1,175 @@
-# VAL-001: Aiken Distribution Validator Stub
+# VAL-001: Aiken Distribution Validator
 
-Prove Cardano eUTxO settlement: lock funds in a simple Aiken validator, then distribute to two beneficiaries when a metadata condition is met.
+Proves Cardano eUTxO settlement: lock funds in an Aiken validator, then distribute to two beneficiaries when the redeemer carries the correct tag and epoch.
+
+Part of the [Zivana Validation monorepo](https://github.com/zivana-labs/zivana-validation).
+
+---
+
+## How it works
+
+```
+Funder  ──lock──▶  Validator (distribution.ak)
+                        │
+                   [Redeemer: tag="zivana-distribute", epoch>0]
+                        │
+          ┌─────────────┴─────────────┐
+          ▼                           ▼
+    Beneficiary 1               Beneficiary 2
+```
+
+The validator rejects the spend unless:
+1. The redeemer tag equals `"zivana-distribute"` (ByteArray).
+2. The redeemer epoch is greater than `0` (**extension** — second required condition).
+3. Transaction outputs include payments to both beneficiary key hashes from the datum.
+
+> **Why redeemer, not metadata?**  
+> Cardano validators cannot read transaction metadata — it is outside the script context. Conditions are passed via the redeemer, which is the idiomatic eUTxO pattern.
+
+---
 
 ## Prerequisites
-- Node.js 18+, npm
-- Blockfrost API key (free tier: blockfrost.io)
-- Aiken installed (`curl -sSfL https://install.aiken-lang.org | bash`)
+
+| Tool | Version | Install |
+|------|---------|---------|
+| Aiken | v1.1.x | `curl -sSfL https://install.aiken-lang.org \| bash` |
+| Node.js | 18+ | [nodejs.org](https://nodejs.org) |
+| npm | 9+ | bundled with Node.js |
+| Blockfrost preprod API key | — | [blockfrost.io](https://blockfrost.io) → Create Project → Preprod |
+
+---
 
 ## Setup
-1. `npm install`
-2. Replace `your_project_id_here` in `scripts/interact.ts` with your Blockfrost key.
-3. `aiken build` — compiles the validator.
 
-## Testing
-1. Ensure you have test ADA on Cardano preprod (faucet: https://docs.cardano.org/cardano-testnet/tools/faucet).
-2. Run `npx ts-node scripts/interact.ts`.
-3. Observe the lock and distribute transactions in the explorer.
+```bash
+# 1. Install Aiken
+curl -sSfL https://install.aiken-lang.org | bash
+source ~/.aiken/bin/env      # or restart your shell
+aiken --version              # should print v1.1.x
 
-## Extension (contributor task)
-Add a second condition (e.g., require a specific metadata key) and write a test that validates it.
+# 2. Install Node dependencies
+cd aiken-stub
+npm install
+
+# 3. Compile the validator
+aiken build                  # generates plutus.json
+```
+
+---
+
+## Run tests
+
+```bash
+aiken check
+```
+
+Expected output: **9 tests, 9 passed, 0 failed**
+
+Every test constructs a real `Datum` / `Redeemer` / `Transaction` and invokes the
+actual `distribution.spend` handler, asserting on its return value — they do not
+re-implement the validator's logic. Mutating the validator body to `True` makes
+the seven rejection tests fail, so a passing run is genuine evidence the
+validator enforces each condition.
+
+| Test | Invokes `spend` with | Expect |
+|------|----------------------|--------|
+| `distribute_valid` | all four conditions satisfied | True |
+| `distribute_wrong_tag_rejected` | tag ≠ `"zivana-distribute"` | False |
+| `distribute_epoch_mismatch_rejected` | redeemer epoch ≠ datum `release_epoch` | False |
+| `distribute_zero_epoch_rejected` | epoch = 0 (matches datum, fails > 0) | False |
+| `distribute_negative_epoch_rejected` | epoch = -1 | False |
+| `distribute_owner_not_signed_rejected` | owner absent from `extra_signatories` | False |
+| `distribute_missing_beneficiary1_rejected` | only beneficiary2 paid | False |
+| `distribute_missing_beneficiary2_rejected` | only beneficiary1 paid | False |
+| `distribute_no_datum_rejected` | `None` datum | False |
+
+---
+
+## Obtaining preprod ADA
+
+1. With `WALLET_SEED` set, run `npx ts-node scripts/interact.ts` — it prints the wallet address before submitting.
+2. Visit the [Cardano preprod faucet](https://docs.cardano.org/cardano-testnet/tools/faucet).
+3. Select **Preview/Preprod**, paste the wallet address, request funds.
+4. Wait ~1 minute for the faucet transaction to confirm.
+
+---
+
+## Deploy on preprod
+
+```bash
+export BLOCKFROST_PROJECT_ID="preprodXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+
+# REQUIRED: your own funded 24-word preprod seed phrase.
+export WALLET_SEED="word1 word2 ... word24"
+
+# Distinct beneficiary payout addresses (required unless DEMO_MODE=true).
+export BENEFICIARY1_ADDRESS="addr_test1..."
+export BENEFICIARY2_ADDRESS="addr_test1..."
+
+# Or, to intentionally send both payouts to your own wallet (no distinct
+# addresses), opt in explicitly — the script refuses to do this silently:
+# export DEMO_MODE=true
+
+npx ts-node scripts/interact.ts
+```
+
+> **Security:** never commit a real seed phrase. The script refuses to run
+> without `WALLET_SEED` rather than fall back to a well-known public seed.
+
+The script:
+1. Locks **10 ADA** in the validator.
+2. Waits for the lock transaction to confirm.
+3. Distributes funds back using the `Distribute { tag, epoch }` redeemer.
+
+Transaction links appear on [preprod.cardanoscan.io](https://preprod.cardanoscan.io).
+
+---
+
+## Extension implemented
+
+The original stub had a single condition (a metadata check, which is impossible on Cardano).  
+This implementation adds:
+
+- **Fixed**: Condition moved to the redeemer (`tag: ByteArray`).
+- **Extended**: A second required field `epoch: Int > 0` in the redeemer, representing a valid distribution epoch. Any transaction that supplies `epoch = 0` or a negative value will be rejected by the validator.
+
+Relevant code: [`validators/distribution.ak`](validators/distribution.ak)
+
+---
+
+## Note on `plutus.json`
+
+`plutus.json` lists two validator entries — `distribution.distribution.spend`
+and `distribution.distribution.else` — with **identical `compiledCode` and the
+same `hash`**. This is expected Aiken behaviour: the `else` clause compiles into
+the same script (it just `fail`s on the unmatched branch). They are the same
+on-chain script, not two deployments. The interact script targets the `.spend`
+entry.
+
+---
+
+## Files
+
+```
+aiken-stub/
+├── aiken.toml              Aiken project config (stdlib v2.2.0 dependency)
+├── plutus.json             Compiled script blueprint (generated by aiken build)
+├── tsconfig.json           TypeScript config for ts-node
+├── package.json            Node dependencies (@lucid-evolution/lucid)
+├── validators/
+│   └── distribution.ak     Validator + 5 unit tests
+├── scripts/
+│   └── interact.ts         Lock + distribute script for Cardano preprod
+└── README.md               This file
+```
+
+---
+
+## Acceptance criteria
+
+- [x] Validator compiles with `aiken build` (Aiken v1.1.22, stdlib v2.2.0)
+- [x] All tests pass with `aiken check` (9/9)
+- [x] Tests invoke `distribution.spend` directly (not re-implemented logic); each of the four conditions has a satisfied and a rejecting case
+- [x] `interact.ts` loads `plutus.json`, constructs datum/redeemer, submits lock and distribute transactions
+- [x] Extended validator requires `epoch > 0` and rejects `epoch ≤ 0`
+- [x] New test `distribute_zero_epoch_rejected` exercises the extension
