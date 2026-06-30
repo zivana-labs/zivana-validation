@@ -1,0 +1,95 @@
+version: "3.8"
+
+# IMPORTANT VERSION PAIRINGS — each confirmed against the real, current
+# compatibility statements in each project's own release notes, not
+# assumed from version-number proximity:
+#   cardano-node:    11.0.1  (ghcr.io/blinklabs-io/cardano-node:latest,
+#                    confirmed via `cardano-node --version` on 2026-06-29)
+#   cardano-wallet:  v2026-05-11 — release notes state
+#                    "Compatible with cardano-node@11.0.1"
+#   cardano-db-sync: 13.7.0.5 — the FIRST version that explicitly supports
+#                    node 11.0.1 (13.6.x only goes up to "node-10.1.4 and
+#                    later", which does NOT cover 11.0.1 — confirmed by
+#                    reading 13.7.0.5's own release notes directly, not
+#                    inferred from version-number adjacency)
+
+services:
+  cardano-node:
+    image: ghcr.io/blinklabs-io/cardano-node:latest
+    container_name: cardano-preprod-node
+    environment:
+      NETWORK: preprod
+    volumes:
+      - node-data:/data/db
+      - node-ipc:/ipc
+    ports:
+      - "3001:3001"
+    restart: unless-stopped
+
+  cardano-wallet:
+    image: cardanofoundation/cardano-wallet:v2026-05-11
+    container_name: cardano-preprod-wallet
+    entrypoint: []
+    command:
+      - cardano-wallet
+      - serve
+      - --testnet
+      - /config/byron-genesis.json
+      - --node-socket
+      - /ipc/node.socket
+      - --database
+      - /wallet-db
+      - --listen-address
+      - 0.0.0.0
+    volumes:
+      - node-ipc:/ipc
+      - wallet-data:/wallet-db
+      - ./config:/config:ro
+    ports:
+      - "127.0.0.1:8090:8090"
+    depends_on:
+      - cardano-node
+    restart: unless-stopped
+
+  db-sync-postgres:
+    image: postgres:14.10-alpine
+    container_name: cardano-preprod-db-sync-postgres
+    environment:
+      POSTGRES_DB: cexplorer
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DBSYNC_POSTGRES_PASSWORD:?DBSYNC_POSTGRES_PASSWORD must be set, no default}
+    volumes:
+      - db-sync-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  cardano-db-sync:
+    image: ghcr.io/intersectmbo/cardano-db-sync:13.7.0.5
+    container_name: cardano-preprod-db-sync
+    environment:
+      NETWORK: preprod
+      POSTGRES_HOST: db-sync-postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: cexplorer
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DBSYNC_POSTGRES_PASSWORD:?DBSYNC_POSTGRES_PASSWORD must be set, no default}
+    volumes:
+      - db-sync-data:/var/lib/cexplorer
+      - node-ipc:/node-ipc
+    depends_on:
+      cardano-node:
+        condition: service_started
+      db-sync-postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  node-data:
+  node-ipc:
+  wallet-data:
+  db-sync-pg-data:
+  db-sync-data:
