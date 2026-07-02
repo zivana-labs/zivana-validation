@@ -1,0 +1,112 @@
+services:
+  db:
+    image: postgres:13
+    container_name: identus-issuer-db
+    environment:
+      POSTGRES_MULTIPLE_DATABASES: "pollux,connect,agent,node_db"
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set, no default}
+    volumes:
+      - issuer_pg_data:/var/lib/postgresql/data
+      - ../scripts/postgres-init-multiple-databases.sh:/docker-entrypoint-initdb.d/init-script.sh:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "agent"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - issuer-net
+
+  vault-server:
+    image: hashicorp/vault:1.15
+    container_name: identus-issuer-vault
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_ROOT_TOKEN_ID:?VAULT_DEV_ROOT_TOKEN_ID must be set, no default}
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    networks:
+      - issuer-net
+
+  prism-node:
+    image: docker.io/inputoutput/prism-node:${PRISM_NODE_VERSION:?PRISM_NODE_VERSION must be pinned, e.g. 2.6.0}
+    container_name: identus-issuer-prism-node
+    environment:
+      NODE_PSQL_HOST: db:5432
+      NODE_PSQL_DATABASE: node_db
+      NODE_PSQL_USERNAME: postgres
+      NODE_PSQL_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set, no default}
+      NODE_CARDANO_NETWORK: preprod
+      NODE_CARDANO_WALLET_API_HOST: cardano-preprod-wallet
+      NODE_CARDANO_WALLET_API_PORT: 8090
+      NODE_CARDANO_DB_SYNC_HOST: cardano-preprod-db-sync-postgres
+      NODE_CARDANO_DB_SYNC_PORT: 5432
+      NODE_CARDANO_DB_SYNC_DATABASE: cexplorer
+      NODE_CARDANO_WALLET_ID: ${CARDANO_WALLET_ID:?Create the wallet in cardano-wallet first, then set its wallet ID here}
+      NODE_CARDANO_PAYMENT_ADDRESS: ${CARDANO_PAYMENT_ADDRESS:?Set the funded preprod payment address}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - issuer-net
+      - cardano-preprod-net
+
+  cloud-agent:
+    image: docker.io/hyperledgeridentus/identus-cloud-agent:${AGENT_VERSION:?AGENT_VERSION must be pinned, e.g. 2.0.0}
+    container_name: identus-issuer-cloud-agent
+    environment:
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?ADMIN_TOKEN must be set, no default}
+      API_KEY_ENABLED: ${API_KEY_ENABLED:-true}
+      DEFAULT_WALLET_ENABLED: "true"
+      DEFAULT_WALLET_SEED: ${WALLET_SEED_ISSUER:?WALLET_SEED_ISSUER is required}
+      SECRET_STORAGE_BACKEND: vault
+      VAULT_ADDR: http://vault-server:8200
+      VAULT_TOKEN: ${VAULT_DEV_ROOT_TOKEN_ID:?VAULT_DEV_ROOT_TOKEN_ID must be set, no default}
+      DIDCOMM_SERVICE_URL: http://cloud-agent:8090
+      REST_SERVICE_URL: http://cloud-agent:8085
+      POLLUX_DB_HOST: db
+      POLLUX_DB_PORT: 5432
+      POLLUX_DB_NAME: pollux
+      POLLUX_DB_USER: postgres
+      POLLUX_DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set, no default}
+      POLLUX_DB_APP_USER: ${POLLUX_DB_APP_USER:-pollux-application-user}
+      POLLUX_DB_APP_PASSWORD: ${POLLUX_DB_APP_PASSWORD:-password}
+      CONNECT_DB_HOST: db
+      CONNECT_DB_PORT: 5432
+      CONNECT_DB_NAME: connect
+      CONNECT_DB_USER: postgres
+      CONNECT_DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set, no default}
+      CONNECT_DB_APP_USER: ${CONNECT_DB_APP_USER:-connect-application-user}
+      CONNECT_DB_APP_PASSWORD: ${CONNECT_DB_APP_PASSWORD:-password}
+      AGENT_DB_HOST: db
+      AGENT_DB_PORT: 5432
+      AGENT_DB_NAME: agent
+      AGENT_DB_USER: postgres
+      AGENT_DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set, no default}
+      AGENT_DB_APP_USER: ${AGENT_DB_APP_USER:-agent-application-user}
+      AGENT_DB_APP_PASSWORD: ${AGENT_DB_APP_PASSWORD:-password}
+      PRISM_NODE_HOST: prism-node
+      PRISM_NODE_PORT: 50053
+    ports:
+      - "8085:8085"
+      - "8095:8090"
+    depends_on:
+      db:
+        condition: service_healthy
+      vault-server:
+        condition: service_started
+      prism-node:
+        condition: service_started
+    networks:
+      - issuer-net
+
+volumes:
+  issuer_pg_data:
+
+networks:
+  issuer-net:
+    name: identus-issuer-net
+    driver: bridge
+  cardano-preprod-net:
+    name: cardano-preprod_default
+    external: true

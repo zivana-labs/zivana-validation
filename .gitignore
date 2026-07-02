@@ -12,6 +12,12 @@ __pycache__/
 dist/
 build/
 
+# Node
+node_modules/
+
+# Aiken build output
+aiken-stub/build/
+
 # IDE
 .vscode/
 .idea/
