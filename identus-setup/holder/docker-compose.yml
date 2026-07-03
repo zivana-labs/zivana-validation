@@ -23,8 +23,11 @@ services:
     cap_add:
       - IPC_LOCK
     environment:
-      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_ROOT_TOKEN_ID:?VAULT_DEV_ROOT_TOKEN_ID must be set, no default}
-      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+      VAULT_TOKEN_ID: ${VAULT_DEV_ROOT_TOKEN_ID:?VAULT_DEV_ROOT_TOKEN_ID must be set, no default}
+    entrypoint: sh /scripts/vault-init.sh
+    volumes:
+      - holder_vault_data:/vault/data
+      - ../scripts:/scripts:ro
     networks:
       - holder-net
 
@@ -54,8 +57,8 @@ services:
       SECRET_STORAGE_BACKEND: vault
       VAULT_ADDR: http://vault-server:8200
       VAULT_TOKEN: ${VAULT_DEV_ROOT_TOKEN_ID:?VAULT_DEV_ROOT_TOKEN_ID must be set, no default}
-      DIDCOMM_SERVICE_URL: http://172.20.0.1:7095
-      REST_SERVICE_URL: http://cloud-agent:7085
+      DIDCOMM_SERVICE_URL: http://172.22.0.1:7095
+      REST_SERVICE_URL: http://172.22.0.1:7085
       POLLUX_DB_HOST: db
       POLLUX_DB_PORT: 5432
       POLLUX_DB_NAME: pollux
@@ -94,6 +97,7 @@ services:
 
 volumes:
   holder_pg_data:
+  holder_vault_data:
 
 networks:
   holder-net:
