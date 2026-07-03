@@ -2,11 +2,18 @@
   "name": "celo-minipay",
   "scripts": {
     "compile": "hardhat compile",
-    "deploy": "hardhat run scripts/deploy.ts --network alfajores",
-    "simulate": "hardhat run scripts/simulate.ts --network alfajores"
+    "test": "hardhat test",
+    "deploy": "hardhat run scripts/deploy.ts --network celoSepolia",
+    "deploy:cusd": "hardhat run scripts/deploy-cusd.ts --network celoSepolia",
+    "simulate": "hardhat run scripts/simulate.ts --network celoSepolia",
+    "simulate:cusd": "hardhat run scripts/simulate-cusd.ts --network celoSepolia"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^3.0.0",
-    "hardhat": "^2.18.0"
+    "@types/node": "^20.11.0",
+    "dotenv": "^16.4.0",
+    "hardhat": "^2.18.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.3.0"
   }
 }
