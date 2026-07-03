@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Secrets / env
+.env
+.env.*
+!.env.example
+
+# Build / cache / generated artifacts
+build/
+dist/
+out/
+artifacts/
+cache/
+typechain-types/
+coverage/
+coverage.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Logs / OS / editor junk
+*.log
+.DS_Store
+.idea/
+.vscode/
+
+# devmemory injection artifact (not real project docs)
+CLAUDE.md
