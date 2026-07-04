@@ -30,6 +30,12 @@ services:
       - ../scripts:/scripts:ro
     networks:
       - issuer-net
+    healthcheck:
+      test: ["CMD", "sh", "-c", "VAULT_ADDR=http://127.0.0.1:8200 vault status 2>/dev/null | grep -q 'Sealed.*false'"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 20s
 
   prism-node:
     image: docker.io/inputoutput/prism-node:${PRISM_NODE_VERSION:?PRISM_NODE_VERSION must be pinned, e.g. 2.6.0}
@@ -101,7 +107,7 @@ services:
       db:
         condition: service_healthy
       vault-server:
-        condition: service_started
+        condition: service_healthy
       prism-node:
         condition: service_started
     networks:
