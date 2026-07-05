@@ -52,10 +52,10 @@ services:
       NODE_CARDANO_DB_SYNC_HOST: cardano-preprod-db-sync-postgres
       NODE_CARDANO_DB_SYNC_PORT: 5432
       NODE_CARDANO_DB_SYNC_DATABASE: cexplorer
-      NODE_CARDANO_WALLET_ID: 9e624bdbc2fc4f191d791fb5253e63b5f253ae6e
-      NODE_CARDANO_WALLET_PASSPHRASE: a-strong-local-passphrase-change-me
+      NODE_CARDANO_WALLET_ID: ${CARDANO_WALLET_ID:?Create the wallet in cardano-wallet first, then set its wallet ID here}
+      NODE_CARDANO_WALLET_PASSPHRASE: ${NODE_CARDANO_WALLET_PASSPHRASE:?NODE_CARDANO_WALLET_PASSPHRASE must be set}
       NODE_CARDANO_DB_SYNC_PASSWORD: ${DBSYNC_POSTGRES_PASSWORD:?DBSYNC_POSTGRES_PASSWORD must be set}
-      NODE_CARDANO_PAYMENT_ADDRESS: addr_test1qqdljpvgvy66k5gs4m6tm23x39xa3w047g062qwgn27xshsmfjkdhnxx7qvhv3atc5fgurd0t9as92nv56nsjxvrgkmq75fvgl
+      NODE_CARDANO_PAYMENT_ADDRESS: ${CARDANO_PAYMENT_ADDRESS:?Set the funded preprod payment address}
     depends_on:
       db:
         condition: service_healthy
@@ -82,21 +82,21 @@ services:
       POLLUX_DB_USER: postgres
       POLLUX_DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set, no default}
       POLLUX_DB_APP_USER: ${POLLUX_DB_APP_USER:-pollux-application-user}
-      POLLUX_DB_APP_PASSWORD: ${POLLUX_DB_APP_PASSWORD:-password}
+      POLLUX_DB_APP_PASSWORD: ${POLLUX_DB_APP_PASSWORD:?POLLUX_DB_APP_PASSWORD must be set}
       CONNECT_DB_HOST: db
       CONNECT_DB_PORT: 5432
       CONNECT_DB_NAME: connect
       CONNECT_DB_USER: postgres
       CONNECT_DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set, no default}
       CONNECT_DB_APP_USER: ${CONNECT_DB_APP_USER:-connect-application-user}
-      CONNECT_DB_APP_PASSWORD: ${CONNECT_DB_APP_PASSWORD:-password}
+      CONNECT_DB_APP_PASSWORD: ${CONNECT_DB_APP_PASSWORD:?CONNECT_DB_APP_PASSWORD must be set}
       AGENT_DB_HOST: db
       AGENT_DB_PORT: 5432
       AGENT_DB_NAME: agent
       AGENT_DB_USER: postgres
       AGENT_DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set, no default}
       AGENT_DB_APP_USER: ${AGENT_DB_APP_USER:-agent-application-user}
-      AGENT_DB_APP_PASSWORD: ${AGENT_DB_APP_PASSWORD:-password}
+      AGENT_DB_APP_PASSWORD: ${AGENT_DB_APP_PASSWORD:?AGENT_DB_APP_PASSWORD must be set}
       PRISM_NODE_HOST: prism-node
       PRISM_NODE_PORT: 50053
     ports:
@@ -120,6 +120,10 @@ networks:
   verifier-net:
     name: identus-verifier-net
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.23.0.0/24
+          gateway: 172.23.0.1
   cardano-preprod-net:
     name: cardano-preprod_default
     external: true

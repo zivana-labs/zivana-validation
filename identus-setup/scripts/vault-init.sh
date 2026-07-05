@@ -48,11 +48,15 @@ vault login $ROOT_TOKEN
 if [ "$FIRST_INIT" = "true" ]; then
   echo "First init: enabling KV v2..."
   vault secrets enable -path=secret kv-v2
-  vault token create -id="${VAULT_TOKEN_ID}" -policy=root -no-default-policy 2>/dev/null || true
   echo "KV v2 enabled."
+fi
+
+echo "Ensuring configured token exists..."
+if vault token lookup "${VAULT_TOKEN_ID}" >/dev/null 2>&1; then
+  echo "Token already exists, skipping creation."
 else
-  echo "Restart: skipping KV configuration."
-  vault token create -id="${VAULT_TOKEN_ID}" -policy=root -no-default-policy 2>/dev/null || true
+  vault token create -id="${VAULT_TOKEN_ID}" -policy=root -no-default-policy
+  echo "Token created."
 fi
 
 echo "Vault ready."

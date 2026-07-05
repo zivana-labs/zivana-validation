@@ -107,6 +107,16 @@ openssl rand -hex 24                  # POSTGRES_PASSWORD
 
 Never commit `.env` files. The `.gitignore` excludes them.
 
+The following variables have constraints worth noting:
+
+- `NODE_CARDANO_WALLET_PASSPHRASE` — the passphrase used when the cardano-wallet
+  was created. Must match exactly or the wallet will not unlock.
+- `CARDANO_WALLET_ID` and `CARDANO_PAYMENT_ADDRESS` — obtained from the
+  cardano-wallet after funding. See the Cardano Stack Setup section.
+- `POLLUX_DB_APP_PASSWORD`, `CONNECT_DB_APP_PASSWORD`, `AGENT_DB_APP_PASSWORD` —
+  must be `password` to match the Cloud Agent v2.2.0 `application.conf` hardcoded
+  defaults. Do not change these unless you are also patching the agent configuration.
+
 ---
 
 ## Starting the Stacks
@@ -336,6 +346,17 @@ simultaneously unless you have 16GB+ available.
 ---
 
 ## Key Engineering Findings
+
+**Bridge network gateway IPs must be pinned with IPAM subnets.** Docker assigns
+bridge network subnets dynamically from its default pool. Without explicit
+`ipam.config.subnet` entries in each network definition, the gateway IPs used in
+`DIDCOMM_SERVICE_URL`, `REST_SERVICE_URL`, and `POLLUX_STATUS_LIST_REGISTRY_PUBLIC_URL`
+will not match on a different machine or a different startup sequence. The result is
+silent failure: DIDComm connections appear to succeed but messages never arrive,
+credential status resolution returns `ResourceNotFound`, and verification fails with
+no obvious error pointing at the real cause. Each network in this stack has its
+subnet pinned: `172.20.0.0/24` for the issuer, `172.22.0.0/24` for the holder,
+and `172.23.0.0/24` for the verifier.
 
 **NODE_LEDGER=cardano is required.** Without it, prism-node defaults to
 in-memory mode and reports PUBLISHED without submitting any Cardano transaction.

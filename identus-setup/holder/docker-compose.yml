@@ -71,21 +71,21 @@ services:
       POLLUX_DB_USER: postgres
       POLLUX_DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set, no default}
       POLLUX_DB_APP_USER: ${POLLUX_DB_APP_USER:-pollux-application-user}
-      POLLUX_DB_APP_PASSWORD: ${POLLUX_DB_APP_PASSWORD:-password}
+      POLLUX_DB_APP_PASSWORD: ${POLLUX_DB_APP_PASSWORD:?POLLUX_DB_APP_PASSWORD must be set}
       CONNECT_DB_HOST: db
       CONNECT_DB_PORT: 5432
       CONNECT_DB_NAME: connect
       CONNECT_DB_USER: postgres
       CONNECT_DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set, no default}
       CONNECT_DB_APP_USER: ${CONNECT_DB_APP_USER:-connect-application-user}
-      CONNECT_DB_APP_PASSWORD: ${CONNECT_DB_APP_PASSWORD:-password}
+      CONNECT_DB_APP_PASSWORD: ${CONNECT_DB_APP_PASSWORD:?CONNECT_DB_APP_PASSWORD must be set}
       AGENT_DB_HOST: db
       AGENT_DB_PORT: 5432
       AGENT_DB_NAME: agent
       AGENT_DB_USER: postgres
       AGENT_DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set, no default}
       AGENT_DB_APP_USER: ${AGENT_DB_APP_USER:-agent-application-user}
-      AGENT_DB_APP_PASSWORD: ${AGENT_DB_APP_PASSWORD:-password}
+      AGENT_DB_APP_PASSWORD: ${AGENT_DB_APP_PASSWORD:?AGENT_DB_APP_PASSWORD must be set}
       PRISM_NODE_HOST: prism-node
       PRISM_NODE_PORT: 50053
     ports:
@@ -109,3 +109,7 @@ networks:
   holder-net:
     name: identus-holder-net
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.22.0.0/24
+          gateway: 172.22.0.1
