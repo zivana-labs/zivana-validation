@@ -61,16 +61,26 @@ Ordered by impact.
   collapse approve+deposit into one signed call, or accept a direct `transfer` + push model. For
   MiniPay specifically, the wallet abstracts gas (pays fees in the stablecoin), which softens this.
 
-## 7. MiniPay on testnet is limited (mainnet-first product)
+## 7. MiniPay testnet: transfers fail with a fee-currency gas bug (tested on-device)
 
-- **Friction:** MiniPay (in Opera Mini) is a **mainnet** consumer product; there is no first-class
-  consumer testnet. Getting a genuine "MiniPay test interface" screenshot on Sepolia requires the
-  developer testing flow (site settings / MiniPay dApp test build via the SDK), not the shipping app.
-- **Action taken:** Documented the MiniPay SDK detection + phone-number (SocialConnect) flow in
-  `MINIPAY.md`; the acceptance criteria accept **Valora logs** as an alternative, so a testnet-capable
-  wallet can supply the send-side evidence.
-- **Suggestion:** For a faithful MiniPay demo, do the final payment on **mainnet** with a tiny real
-  amount, or use the MiniPay in-app dApp tester; treat Sepolia as the contract-validation environment.
+MiniPay **does** support Celo Sepolia: Settings → About → tap Version ~7× → Developer Settings →
+"Use Testnet". Installed on a real Android device, wallet created, and funded with faucet CELO + 20
+test USDC. But sending consistently failed:
+
+- **Friction (tested):** A stablecoin send is rejected by the node:
+  `intrinsic gas too low: gas limit 54526 below required 71596 (standard intrinsic + fee-currency
+  intrinsic) for fee-currency 0xbf1441Ea57f43f35f713431001f35742c88071c7`.
+  MiniPay pays gas in a stablecoin ("fee-currency"), which on Celo costs ~50k extra intrinsic gas, but
+  MiniPay sets the gas limit too low (54526 vs 71596 required). The user cannot edit the gas limit in
+  the UI, and there is no clear option to switch the fee token to native CELO.
+- **Friction:** MiniPay's transfer UI funnels users into an exchange-specific "Withdraw to Binance"
+  flow (select USDC → CELO network → paste Binance deposit address), which is meaningless on a testnet.
+- **Action taken:** Captured the error as evidence (a genuine "MiniPay test interface" friction
+  screenshot). The acceptance criteria accept **Valora logs** as an alternative if a clean send is
+  required.
+- **Suggestion:** MiniPay's gas estimator should add the fee-currency intrinsic surcharge to the gas
+  limit (or expose a "pay fee in CELO" toggle) on Celo Sepolia. Until then, treat Sepolia as the
+  contract-validation environment and do the wallet-UX demo on mainnet with a sub-cent amount.
 
 ## 8. Verification requires care post-Etherscan-v2
 
