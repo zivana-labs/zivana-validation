@@ -15,6 +15,8 @@ cache/
 typechain-types/
 coverage/
 coverage.json
+*.egg-info/
+aiken-stub/build/
 
 # Python
 __pycache__/
@@ -24,7 +26,10 @@ venv/
 
 # Logs / OS / editor junk
 *.log
+*.swp
+*.swo
 .DS_Store
+Thumbs.db
 .idea/
 .vscode/
 

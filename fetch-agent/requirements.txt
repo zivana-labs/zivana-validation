@@ -1,2 +1,3 @@
-uagents==0.12.0
+uagents>=0.25.0
 requests
+python-dotenv

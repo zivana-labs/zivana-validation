@@ -1,0 +1,55 @@
+pragma language_version >= 0.22;
+
+import CompactStandardLibrary;
+
+// === Public ledger state ===
+// The minimum trust score a participant must clear. This is public:
+// anyone can see what bar is being proven against.
+export ledger threshold: Uint<64>;
+
+// The most recent proof result. Public, but reveals nothing about the
+// actual score that produced it - only whether some unnamed participant
+// has cleared the threshold at some point.
+//
+// Design choice: proveThreshold() always succeeds as a transaction and
+// discloses true or false symmetrically. It never asserts/aborts on a
+// failed proof. An assert-based design would still leak "someone tried
+// and failed" via a reverted transaction on-chain, which is itself a
+// privacy leak (it reveals an attempt happened, just not the value). A
+// disclosed boolean keeps the success and failure paths
+// indistinguishable in shape, so all that's ever public is the
+// final true/false outcome - never whether an attempt "failed" as an
+// error versus "succeeded" with a false result.
+export ledger lastResult: Boolean;
+
+constructor(initialThreshold: Uint<64>) {
+  threshold = disclose(initialThreshold);
+  lastResult = false;
+}
+
+// === Private witness ===
+// score is supplied locally, off-chain, by the participant's own
+// TypeScript code at proof-generation time. It never appears in any
+// network message, on-chain transaction, or ledger field.
+witness score(): Uint<64>;
+
+// === Circuits ===
+
+// Update the public threshold. Anyone can call this in this minimal
+// version; a production version would gate it behind an authority
+// check (see README "Known limitations").
+export circuit setThreshold(newThreshold: Uint<64>): [] {
+  threshold = disclose(newThreshold);
+}
+
+// Prove that the caller's private score is >= the current public
+// threshold, without revealing the score itself. Only the boolean
+// outcome is written to the ledger via disclose(). This circuit always
+// produces a valid transaction; it never aborts based on the witness
+// value.
+export circuit proveThreshold(): [] {
+  const s = score();
+  const passed = s >= threshold;
+  lastResult = disclose(passed);
+}
+

@@ -1,8 +1,17 @@
-name = "distribution-stub"
+name = "zivana-labs/distribution-stub"
 version = "0.1.0"
-compiler = "v1.1.0"
+compiler = "v1.1.22"
+plutus = "v3"
+description = ""
 
 [repository]
-url = "https://github.com/zivana-labs/zivana-validation"
+user = "zivana-labs"
+project = "zivana-validation"
+platform = "github"
 
-[dependencies]
+[[dependencies]]
+name = "aiken-lang/stdlib"
+version = "v2.2.0"
+source = "github"
+
+[config]

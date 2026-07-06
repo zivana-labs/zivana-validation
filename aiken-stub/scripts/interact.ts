@@ -1,46 +1,246 @@
-import { Lucid, Blockfrost, fromText, Data } from "lucid-cardano";
+/**
+ * Interact with the Zivana distribution validator on Cardano preprod.
+ *
+ * Steps:
+ *  1. Lock 10 ADA in the validator with a datum naming two beneficiaries.
+ *  2. Distribute from the locked UTxO: provide the Distribute redeemer
+ *     (tag = "zivana-distribute", epoch = 1) and pay to both beneficiaries.
+ *
+ * Prerequisites:
+ *  - BLOCKFROST_PROJECT_ID env var set to your preprod API key.
+ *    Get one free at https://blockfrost.io
+ *  - WALLET_SEED env var REQUIRED — a 24-word seed phrase funded with preprod ADA.
+ *    Get preprod ADA at https://docs.cardano.org/cardano-testnet/tools/faucet
+ *  - BENEFICIARY1_ADDRESS / BENEFICIARY2_ADDRESS — distinct payout addresses.
+ *    Required unless DEMO_MODE=true, which opts in to sending both payouts to
+ *    the wallet itself. Missing addresses without DEMO_MODE is a hard error.
+ *  - `aiken build` already run (plutus.json must exist in parent directory).
+ *
+ * Usage:
+ *   BLOCKFROST_PROJECT_ID=preproddXXXXX WALLET_SEED="word1 word2 ..." npx ts-node scripts/interact.ts
+ */
 
-const BLOCKFROST_PROJECT_ID = "your_project_id_here";
+import { readFileSync } from "fs";
+import { join } from "path";
+import {
+  Blockfrost,
+  Constr,
+  Data,
+  Lucid,
+  fromText,
+  validatorToAddress,
+  getAddressDetails,
+  type Script,
+} from "@lucid-evolution/lucid";
+
+// ---------------------------------------------------------------------------
+// Configuration
+// ---------------------------------------------------------------------------
+
+const BLOCKFROST_PROJECT_ID =
+  process.env.BLOCKFROST_PROJECT_ID ?? "your_preprod_project_id_here";
+
 const BLOCKFROST_URL = "https://cardano-preprod.blockfrost.io/api/v0";
 
+// Wallet seed is required
+const WALLET_SEED = process.env.WALLET_SEED;
+if (!WALLET_SEED) {
+  throw new Error(
+    "WALLET_SEED env var is required. Set it to a 24-word preprod seed phrase. " +
+      "There is intentionally no default seed — a public/shared seed can be drained by anyone."
+  );
+}
+
+// The tag the redeemer must carry (UTF-8 → hex). Must match distribution.ak.
+const DISTRIBUTION_TAG: string = fromText("zivana-distribute");
+
+// Release epoch stored in the datum at lock time.
+// The redeemer must supply the same value — prevents spenders from
+// supplying an arbitrary epoch > 0.
+const RELEASE_EPOCH = 1n;
+
+// ---------------------------------------------------------------------------
+// Load compiled validator from plutus.json (output of `aiken build`)
+// ---------------------------------------------------------------------------
+
+const blueprintPath = join(__dirname, "..", "plutus.json");
+const blueprint = JSON.parse(readFileSync(blueprintPath, "utf8"));
+
+const spendEntry = blueprint.validators.find((v: { title: string }) =>
+  v.title.endsWith(".spend")
+);
+if (!spendEntry) {
+  throw new Error("No spend validator in plutus.json. Run `aiken build` first.");
+}
+
+const validator: Script = {
+  type: "PlutusV3",
+  script: spendEntry.compiledCode,
+};
+
+// ---------------------------------------------------------------------------
+// Datum & Redeemer encoding (Plutus CBOR)
+// ---------------------------------------------------------------------------
+
+function buildDatum(
+  ownerPkh: string,
+  b1Pkh: string,
+  b2Pkh: string,
+  releaseEpoch: bigint
+): string {
+  // Datum field order matches distribution.ak:
+  // Datum { owner, beneficiary1, beneficiary2, release_epoch }
+  return Data.to(new Constr(0, [ownerPkh, b1Pkh, b2Pkh, releaseEpoch]));
+}
+
+function buildRedeemer(tag: string, epoch: bigint): string {
+  return Data.to(new Constr(0, [tag, epoch]));
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
 async function main() {
-  const lucid = await Lucid.new(
+  const lucid = await Lucid(
     new Blockfrost(BLOCKFROST_URL, BLOCKFROST_PROJECT_ID),
     "Preprod"
   );
 
-  // Load a seed phrase (for testing only; never use real funds)
-  lucid.selectWalletFromSeed(
-    "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art"
+  lucid.selectWallet.fromSeed(WALLET_SEED);
+
+  const walletAddress = await lucid.wallet().address();
+  const addrDetails = getAddressDetails(walletAddress);
+  const walletPkh = addrDetails.paymentCredential?.hash;
+  if (!walletPkh) throw new Error("Could not extract payment key hash.");
+
+  const contractAddress = validatorToAddress("Preprod", validator);
+
+  console.log("Wallet address  :", walletAddress);
+  console.log("Wallet PKH      :", walletPkh);
+  console.log("Contract address:", contractAddress);
+  console.log();
+
+  // Beneficiary payout targets. In production set BENEFICIARY1_ADDRESS and
+  // BENEFICIARY2_ADDRESS to distinct funded preprod addresses.
+  //
+  // This script moves real (testnet) funds, so defaulting both payouts to the
+  // wallet itself is an explicit opt-in, not a silent fallback: it requires
+  // DEMO_MODE=true. Without it, missing addresses are a hard error.
+  const DEMO_MODE = process.env.DEMO_MODE === "true";
+  const haveBothAddrs =
+    !!process.env.BENEFICIARY1_ADDRESS && !!process.env.BENEFICIARY2_ADDRESS;
+
+  if (!haveBothAddrs && !DEMO_MODE) {
+    throw new Error(
+      "Set BENEFICIARY1_ADDRESS and BENEFICIARY2_ADDRESS to distinct payout addresses, " +
+        "or pass DEMO_MODE=true to intentionally send both payouts to your own wallet."
+    );
+  }
+
+  function resolveBeneficiary(envVar: string, label: string) {
+    const addr = process.env[envVar];
+    if (!addr) return { address: walletAddress, pkh: walletPkh }; // DEMO_MODE only
+    const pkh = getAddressDetails(addr).paymentCredential?.hash;
+    if (!pkh) throw new Error(`${label}: could not extract payment key hash from ${envVar}.`);
+    return { address: addr, pkh };
+  }
+
+  const beneficiary1 = resolveBeneficiary("BENEFICIARY1_ADDRESS", "Beneficiary 1");
+  const beneficiary2 = resolveBeneficiary("BENEFICIARY2_ADDRESS", "Beneficiary 2");
+  const beneficiary1Pkh = beneficiary1.pkh;
+  const beneficiary2Pkh = beneficiary2.pkh;
+
+  if (!haveBothAddrs) {
+    console.warn(
+      "WARNING: DEMO_MODE — beneficiary address(es) not set, both payouts go to the wallet. " +
+        "Set BENEFICIARY1_ADDRESS / BENEFICIARY2_ADDRESS to distinct addresses for production.\n"
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Step 1 — Lock 10 ADA in the validator
+  // Set LOCK_TX_HASH env var to skip this step and go straight to distribute.
+  // -------------------------------------------------------------------------
+
+  let lockTxHash = process.env.LOCK_TX_HASH ?? "";
+
+  if (!lockTxHash) {
+    console.log("Step 1: Locking 10 ADA in the validator...");
+
+    const datum = buildDatum(walletPkh, beneficiary1Pkh, beneficiary2Pkh, RELEASE_EPOCH);
+
+    const lockTxSignBuilder = await lucid
+      .newTx()
+      .pay.ToContract(contractAddress, { kind: "inline", value: datum }, { lovelace: 10_000_000n })
+      .complete();
+
+    lockTxHash = await (await lockTxSignBuilder.sign.withWallet().complete()).submit();
+
+    console.log("Lock TX submitted:", lockTxHash);
+    console.log("View on explorer : https://preprod.cardanoscan.io/transaction/" + lockTxHash);
+    console.log();
+
+    console.log("Waiting for confirmation (this may take ~20 seconds)...");
+    await lucid.awaitTx(lockTxHash);
+    console.log("Lock TX confirmed. Waiting 15s for Blockfrost to index...");
+    await new Promise((r) => setTimeout(r, 15_000));
+    console.log();
+  } else {
+    console.log("Step 1: Skipped (using LOCK_TX_HASH =", lockTxHash, ")");
+    console.log("Waiting 5s for Blockfrost state to settle...");
+    await new Promise((r) => setTimeout(r, 5_000));
+    console.log();
+  }
+
+  // -------------------------------------------------------------------------
+  // Step 2 — Distribute: collect the locked UTxO, pay both beneficiaries
+  // -------------------------------------------------------------------------
+
+  console.log("Step 2: Distributing to beneficiaries...");
+
+  // Fetch fresh UTxOs — avoids using stale pre-lock wallet UTxOs for fees.
+  const [contractUtxos, walletUtxos] = await Promise.all([
+    lucid.utxosAt(contractAddress),
+    lucid.utxosAt(walletAddress),
+  ]);
+
+  const lockedUtxo = contractUtxos.find(
+    (u) => u.txHash === lockTxHash && u.assets.lovelace >= 9_000_000n
   );
+  if (!lockedUtxo) {
+    throw new Error("Could not find the locked UTxO after confirmation.");
+  }
+  console.log("Locked UTxO:", lockedUtxo.txHash, "#" + lockedUtxo.outputIndex);
 
-  // Compile the validator
-  const validatorScript = `...`; // Replace with output from `aiken build`
-  const validatorHash = lucid.utils.validatorToScriptHash(validatorScript);
-  const validatorAddress = lucid.utils.scriptHashToAddress(validatorHash);
+  // Pick the largest wallet UTxO as collateral (must cover 150% of tx fee).
+  const collateralUtxo = walletUtxos
+    .filter((u) => u.assets.lovelace >= 5_000_000n)
+    .sort((a, b) => Number(b.assets.lovelace - a.assets.lovelace))[0];
+  if (!collateralUtxo) throw new Error("No UTxO ≥ 5 ADA available for collateral.");
+  console.log("Collateral UTxO:", collateralUtxo.txHash, "#" + collateralUtxo.outputIndex);
 
-  // Create a lock transaction
-  const tx = await lucid
+  const redeemer = buildRedeemer(DISTRIBUTION_TAG, RELEASE_EPOCH);
+
+  const distTxSignBuilder = await lucid
     .newTx()
-    .payToContract(validatorAddress, { inline: Data.void() }, { lovelace: 10000000n })
-    .complete();
+    .collectFrom([lockedUtxo], redeemer)
+    .attach.SpendingValidator(validator)
+    // Owner must sign — validator checks tx.extra_signatories contains datum.owner.
+    .addSignerKey(walletPkh)
+    .pay.ToAddress(beneficiary1.address, { lovelace: 4_000_000n }) // beneficiary1
+    .pay.ToAddress(beneficiary2.address, { lovelace: 4_000_000n }) // beneficiary2
+    .complete({
+      localUPLCEval: false,
+      setCollateral: 5_000_000n,
+    });
 
-  const signedTx = await tx.sign().complete();
-  const txHash = await signedTx.submit();
-  console.log("Lock transaction:", txHash);
+  const distTxHash = await (await distTxSignBuilder.sign.withWallet().complete()).submit();
 
-  // Distribute transaction (requires metadata label 42)
-  const distributeTx = await lucid
-    .newTx()
-    .collectFrom([/* utxo from lock */], Data.void())
-    .payToAddress("addr_test1...", { lovelace: 5000000n })  // beneficiary1
-    .payToAddress("addr_test2...", { lovelace: 5000000n })  // beneficiary2
-    .attachMetadata(42, fromText("zivana-distribute"))
-    .complete();
-
-  const signedDist = await distributeTx.sign().complete();
-  const distHash = await signedDist.submit();
-  console.log("Distribute transaction:", distHash);
+  console.log("Distribute TX submitted:", distTxHash);
+  console.log("View on explorer       : https://preprod.cardanoscan.io/transaction/" + distTxHash);
+  console.log();
+  console.log("Done. Lock and distribution confirmed on Cardano preprod.");
 }
 
-main();
+main().catch(console.error);
