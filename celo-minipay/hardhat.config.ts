@@ -28,22 +28,24 @@ const config: HardhatUserConfig = {
     //   accounts: [PRIVATE_KEY],
     // },
   },
-  // Verification. Blockscout + Sourcify need NO API key (recommended). Celoscan uses the unified
-  // Etherscan v2 API with a single ETHERSCAN_API_KEY.
+  // Verification. Default is Blockscout, which is Etherscan-API-compatible and needs NO real key
+  // (any non-empty token works). Sourcify is also enabled as a fallback. To use Celoscan instead,
+  // set ETHERSCAN_API_KEY and swap apiURL to https://api.etherscan.io/v2/api +
+  // browserURL https://sepolia.celoscan.io.
   sourcify: {
     enabled: true,
   },
   etherscan: {
     apiKey: {
-      celoSepolia: process.env.ETHERSCAN_API_KEY || "",
+      celoSepolia: process.env.ETHERSCAN_API_KEY || "blockscout",
     },
     customChains: [
       {
         network: "celoSepolia",
         chainId: 11142220,
         urls: {
-          apiURL: "https://api.etherscan.io/v2/api",
-          browserURL: "https://sepolia.celoscan.io",
+          apiURL: "https://celo-sepolia.blockscout.com/api",
+          browserURL: "https://celo-sepolia.blockscout.com",
         },
       },
     ],

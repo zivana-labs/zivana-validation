@@ -25,6 +25,21 @@ for the full rationale. The contract is token-agnostic, so it works with cUSD on
 | `MINIPAY.md` | MiniPay SDK integration + phone-number transfer UX. |
 | `REPORT.md` | Friction points + suggestions. |
 
+## ✅ Live deployment & evidence (Celo Sepolia)
+
+| Item | Value |
+|---|---|
+| Network | Celo Sepolia (chainId `11142220`) |
+| Deployer wallet | `0x0625416E9F02694c680f562Ea47A2Ca24c288d3f` |
+| Stablecoin | USDC `0x01C5C0122039549AD1493B8220cABEdD739BC44E` (6 decimals) |
+| **CusdPaySplitter (verified)** | [`0x37927bE9BC87c4124a2A2ba3FD1fAD6A0e141c8f`](https://celo-sepolia.blockscout.com/address/0x37927bE9BC87c4124a2A2ba3FD1fAD6A0e141c8f#code) |
+| approve tx | [`0xcab3e830…36d05c9`](https://celo-sepolia.blockscout.com/tx/0xcab3e8307a5c1b3dffaf930237a03a0af38a98a144b2f0c9fce2e926536d05c9) |
+| deposit tx | [`0x30941104…18fd4346`](https://celo-sepolia.blockscout.com/tx/0x30941104fbc1b2783353da29bccf28d8544ad6ac419e825cbdf664f018fd4346) |
+| distribute tx | [`0xd045f93a…26a0cf52b3`](https://celo-sepolia.blockscout.com/tx/0xd045f93a23ad82de7102ed73e428a9e4b2f6fdd1b5c7e153a522e326a0cf52b3) |
+| Payout result | Recipient 1 `0xdD75…0b25` → 0.4 USDC · Recipient 2 `0x7E9c…9F83` → 0.6 USDC |
+
+Reproduce the steps below with your own wallet.
+
 ## Prerequisites
 
 - Node.js 18+ and npm
