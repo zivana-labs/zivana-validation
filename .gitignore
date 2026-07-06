@@ -1,29 +1,37 @@
-# Virtual environment
-venv/
-.venv/
+# Dependencies
+node_modules/
 
-# Environment variables (contains API keys)
+# Secrets / env
 .env
+.env.*
+!.env.example
+
+# Build / cache / generated artifacts
+build/
+dist/
+out/
+artifacts/
+cache/
+typechain-types/
+coverage/
+coverage.json
+*.egg-info/
+aiken-stub/build/
 
 # Python
 __pycache__/
 *.py[cod]
-*.egg-info/
-dist/
-build/
+.venv/
+venv/
 
-# Node
-node_modules/
-
-# Aiken build output
-aiken-stub/build/
-
-# IDE
-.vscode/
-.idea/
+# Logs / OS / editor junk
+*.log
 *.swp
 *.swo
-
-# OS
 .DS_Store
 Thumbs.db
+.idea/
+.vscode/
+
+# devmemory injection artifact (not real project docs)
+CLAUDE.md
