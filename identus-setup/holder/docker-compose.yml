@@ -1,0 +1,115 @@
+services:
+  db:
+    image: postgres:13
+    container_name: identus-holder-db
+    environment:
+      POSTGRES_MULTIPLE_DATABASES: "pollux,connect,agent,node_db"
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set, no default}
+    volumes:
+      - holder_pg_data:/var/lib/postgresql/data
+      - ../scripts/postgres-init-multiple-databases.sh:/docker-entrypoint-initdb.d/init-script.sh:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "agent"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - holder-net
+
+  vault-server:
+    image: hashicorp/vault:1.15
+    container_name: identus-holder-vault
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_TOKEN_ID: ${VAULT_DEV_ROOT_TOKEN_ID:?VAULT_DEV_ROOT_TOKEN_ID must be set, no default}
+    entrypoint: sh /scripts/vault-init.sh
+    volumes:
+      - holder_vault_data:/vault/data
+      - ../scripts:/scripts:ro
+    networks:
+      - holder-net
+    healthcheck:
+      test: ["CMD", "sh", "-c", "VAULT_ADDR=http://127.0.0.1:8200 vault status 2>/dev/null | grep -q 'Sealed.*false'"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 20s
+
+  prism-node:
+    image: docker.io/inputoutput/prism-node:${PRISM_NODE_VERSION:?PRISM_NODE_VERSION must be pinned, e.g. 2.6.0}
+    container_name: identus-holder-prism-node
+    environment:
+      NODE_PSQL_HOST: db:5432
+      NODE_PSQL_DATABASE: node_db
+      NODE_PSQL_USERNAME: postgres
+      NODE_PSQL_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set, no default}
+      NODE_LEDGER: in-memory
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - holder-net
+
+  cloud-agent:
+    image: docker.io/hyperledgeridentus/identus-cloud-agent:${AGENT_VERSION:?AGENT_VERSION must be pinned, e.g. 2.0.0}
+    container_name: identus-holder-cloud-agent
+    environment:
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?ADMIN_TOKEN must be set, no default}
+      API_KEY_ENABLED: ${API_KEY_ENABLED:-true}
+      DEFAULT_WALLET_ENABLED: "true"
+      DEFAULT_WALLET_SEED: ${WALLET_SEED_HOLDER:?WALLET_SEED_HOLDER is required}
+      SECRET_STORAGE_BACKEND: vault
+      VAULT_ADDR: http://vault-server:8200
+      VAULT_TOKEN: ${VAULT_DEV_ROOT_TOKEN_ID:?VAULT_DEV_ROOT_TOKEN_ID must be set, no default}
+      DIDCOMM_SERVICE_URL: http://172.22.0.1:7095
+      REST_SERVICE_URL: http://172.22.0.1:7085
+      POLLUX_DB_HOST: db
+      POLLUX_DB_PORT: 5432
+      POLLUX_DB_NAME: pollux
+      POLLUX_DB_USER: postgres
+      POLLUX_DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set, no default}
+      POLLUX_DB_APP_USER: ${POLLUX_DB_APP_USER:-pollux-application-user}
+      POLLUX_DB_APP_PASSWORD: ${POLLUX_DB_APP_PASSWORD:?POLLUX_DB_APP_PASSWORD must be set}
+      CONNECT_DB_HOST: db
+      CONNECT_DB_PORT: 5432
+      CONNECT_DB_NAME: connect
+      CONNECT_DB_USER: postgres
+      CONNECT_DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set, no default}
+      CONNECT_DB_APP_USER: ${CONNECT_DB_APP_USER:-connect-application-user}
+      CONNECT_DB_APP_PASSWORD: ${CONNECT_DB_APP_PASSWORD:?CONNECT_DB_APP_PASSWORD must be set}
+      AGENT_DB_HOST: db
+      AGENT_DB_PORT: 5432
+      AGENT_DB_NAME: agent
+      AGENT_DB_USER: postgres
+      AGENT_DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set, no default}
+      AGENT_DB_APP_USER: ${AGENT_DB_APP_USER:-agent-application-user}
+      AGENT_DB_APP_PASSWORD: ${AGENT_DB_APP_PASSWORD:?AGENT_DB_APP_PASSWORD must be set}
+      PRISM_NODE_HOST: prism-node
+      PRISM_NODE_PORT: 50053
+    ports:
+      - "7085:8085"
+      - "7095:8090"
+    depends_on:
+      db:
+        condition: service_healthy
+      vault-server:
+        condition: service_healthy
+      prism-node:
+        condition: service_started
+    networks:
+      - holder-net
+
+volumes:
+  holder_pg_data:
+  holder_vault_data:
+
+networks:
+  holder-net:
+    name: identus-holder-net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.22.0.0/24
+          gateway: 172.22.0.1
