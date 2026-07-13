@@ -82,7 +82,7 @@ test("RevenueFactDatum encodes to the exact CBOR of a real published Preprod tra
   const datum: RevenueFactDatum = {
     statement: {
       feed_id: fromText("ZIV-REV/zivana-revenue-001/1"),
-      created_at_ms: 1783974970731n,
+      created_at_ms: 1783978554062n,
       body: {
         amount_minor_units: 50000000n,
         currency: fromText("NGN"),
@@ -99,7 +99,7 @@ test("RevenueFactDatum encodes to the exact CBOR of a real published Preprod tra
   };
 
   const realOnChainCbor =
-    "d8799fd8799f581c5a49562d5245562f7a6976616e612d726576656e75652d3030312f311b0000019f5d31c56bd8799f1a02faf080434e474e1a69f3ed001a6a051080581c6469643a707269736d3a3132333435363738396162636465666768695820bde25322044dd46ee5e2243bca15fbb1d0d7321355e90e1d7eda99f656ba988fffffd8799f581cfc7ba6ddaf68027fad8c2c47265081814dcc10dafa643e1644de7e05ffff";
+    "d8799fd8799f581c5a49562d5245562f7a6976616e612d726576656e75652d3030312f311b0000019f5d6872ced8799f1a02faf080434e474e1a69f3ed001a6a051080581c6469643a707269736d3a3132333435363738396162636465666768695820bde25322044dd46ee5e2243bca15fbb1d0d7321355e90e1d7eda99f656ba988fffffd8799f581cfc7ba6ddaf68027fad8c2c47265081814dcc10dafa643e1644de7e05ffff";
 
   assert.equal(Data.to(datum, RevenueFactDatumSchema as any), realOnChainCbor);
 });

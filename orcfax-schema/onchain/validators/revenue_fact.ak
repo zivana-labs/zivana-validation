@@ -14,7 +14,7 @@
 use aiken/collection/dict
 use aiken/collection/list
 use aiken/crypto.{VerificationKeyHash}
-use aiken/interval
+use aiken/interval.{Finite}
 use aiken/primitive/bytearray
 use cardano/address.{Address, Script, VerificationKey}
 use cardano/assets.{PolicyId}
@@ -25,6 +25,11 @@ use zivana/types.{
   Context, FsDat, FsRedeemer, Publish, RevenueBody, RevenueFactDatum, Revoke,
   Statement,
 }
+
+/// The widest a transaction's validity range is allowed to be, in
+/// milliseconds, when publishing a fact statement. Bounds how far into the
+/// future `created_at_ms` can be declared (see `created_at_is_valid`).
+const max_validity_range_width_ms: Int = 3_600_000
 
 fn is_upper_ascii(byte: Int) -> Bool {
   byte >= 65 && byte <= 90
@@ -82,10 +87,24 @@ validator revenue_fact(publisher: VerificationKeyHash) {
           "",
         ) == 1
 
-        let created_at_is_valid = statement.created_at_ms >= 0 && interval.contains(
-          self.validity_range,
-          statement.created_at_ms,
-        )
+        // interval.contains(self.validity_range, x) is vacuously true for
+        // an unbounded range, and nothing else requires the range to be
+        // bounded, so a publisher building a transaction directly (not
+        // through publish-fact.ts) could leave it unbounded and declare
+        // any created_at_ms at all. Requiring both bounds to be Finite
+        // forecloses interval.everything(); capping the width forecloses
+        // declaring a created_at_ms far in the future by pairing it with
+        // a validFrom at the present (which keeps the transaction
+        // immediately submittable) and a distant validTo.
+        expect Finite(range_lower) = self.validity_range.lower_bound.bound_type
+        expect Finite(range_upper) = self.validity_range.upper_bound.bound_type
+
+        let created_at_is_valid = and {
+          statement.created_at_ms >= 0,
+          statement.created_at_ms >= range_lower,
+          statement.created_at_ms <= range_upper,
+          range_upper - range_lower <= max_validity_range_width_ms,
+        }
 
         and {
           signed_by_publisher,
@@ -230,6 +249,10 @@ fn publish_tx(
     extra_signatories: [signer],
     mint: assets.from_asset(test_policy, "", minted_qty),
     outputs: [out],
+    // A bounded window around valid_body()'s created_at_ms (1_735_000_000_000),
+    // well within max_validity_range_width_ms, standing in for
+    // publish-fact.ts's validFrom/validTo in these unit tests.
+    validity_range: interval.between(1_734_999_940_000, 1_735_000_060_000),
   }
 }
 
@@ -348,9 +371,10 @@ test publish_fails_when_created_at_outside_validity_range() {
   let out = locked_output(datum, 1)
   let tx = Transaction {
     ..publish_tx(test_publisher, 1, out),
-    validity_range: interval.between(2_000_000_000_000, 2_100_000_000_000),
+    // Bounded and within the cap, but created_at_ms (1_735_000_000_000)
+    // falls well before this window.
+    validity_range: interval.between(2_000_000_000_000, 2_000_000_600_000),
   }
-  // created_at_ms (1_735_000_000_000) falls well before this window.
   !revenue_fact.mint(test_publisher, Publish, test_policy, tx)
 }
 
@@ -359,9 +383,57 @@ test publish_succeeds_when_created_at_inside_validity_range() {
   let out = locked_output(datum, 1)
   let tx = Transaction {
     ..publish_tx(test_publisher, 1, out),
-    validity_range: interval.between(1_700_000_000_000, 1_800_000_000_000),
+    validity_range: interval.between(1_734_999_700_000, 1_735_000_300_000),
   }
   revenue_fact.mint(test_publisher, Publish, test_policy, tx)
+}
+
+test publish_fails_with_unbounded_validity_range() fail {
+  // interval.everything() (Transaction.placeholder's default) has no
+  // Finite bounds at all, so the `expect Finite(...)` pair aborts rather
+  // than cleanly returning False — still a rejection, just via a crash.
+  // This is the regression test for the validity-range binding gap: a
+  // transaction built directly (bypassing publish-fact.ts's validFrom/
+  // validTo) could otherwise leave the range unbounded and declare any
+  // created_at_ms at all.
+  let datum = valid_datum(test_publisher, valid_body())
+  let out = locked_output(datum, 1)
+  let tx = Transaction {
+    ..placeholder,
+    extra_signatories: [test_publisher],
+    mint: assets.from_asset(test_policy, "", 1),
+    outputs: [out],
+  }
+  revenue_fact.mint(test_publisher, Publish, test_policy, tx)
+}
+
+test publish_fails_with_one_sided_infinite_validity_range() fail {
+  // Only the lower bound is Finite (upper is PositiveInfinity), so the
+  // second `expect Finite(...)` aborts.
+  let datum = valid_datum(test_publisher, valid_body())
+  let out = locked_output(datum, 1)
+  let tx = Transaction {
+    ..publish_tx(test_publisher, 1, out),
+    validity_range: interval.after(1_735_000_000_000),
+  }
+  revenue_fact.mint(test_publisher, Publish, test_policy, tx)
+}
+
+test publish_fails_when_validity_range_exceeds_cap() {
+  // Both bounds are Finite and created_at_ms sits inside the range, but
+  // the range itself (4 hours) is wider than max_validity_range_width_ms
+  // (1 hour) — this must fail cleanly (not abort), since it's the width
+  // check specifically being tested, not the Finite-bound check.
+  let datum = valid_datum(test_publisher, valid_body())
+  let out = locked_output(datum, 1)
+  let tx = Transaction {
+    ..publish_tx(test_publisher, 1, out),
+    validity_range: interval.between(
+      1_735_000_000_000 - 2 * 3_600_000,
+      1_735_000_000_000 + 2 * 3_600_000,
+    ),
+  }
+  !revenue_fact.mint(test_publisher, Publish, test_policy, tx)
 }
 
 test publish_fails_when_minting_wrong_quantity() {

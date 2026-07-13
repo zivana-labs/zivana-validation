@@ -59,11 +59,12 @@ async function main() {
   const datumCbor = Data.to(datum, RevenueFactDatumSchema as any);
   const redeemer = Data.to("Publish", FsRedeemerSchema as any);
 
-  // Bounds self.validity_range on-chain so the validator's
-  // interval.contains(self.validity_range, created_at_ms) check is
-  // meaningful rather than trivially satisfied by an unbounded range.
-  const validFrom = now - 5 * 60 * 1000;
-  const validTo = now + 2 * 60 * 60 * 1000;
+  // Bounds self.validity_range on-chain. The validator requires both
+  // bounds to be finite (rejecting an unbounded range outright) and caps
+  // the width at max_validity_range_width_ms (1 hour, onchain/validators/
+  // revenue_fact.ak) — this window must stay comfortably inside that cap.
+  const validFrom = now - 2 * 60 * 1000;
+  const validTo = now + 20 * 60 * 1000;
 
   const tx = await lucid
     .newTx()

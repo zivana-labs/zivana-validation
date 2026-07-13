@@ -4,13 +4,15 @@ A Schema.org fact-statement for an SME revenue event is defined here,
 published as a signed on-chain datum on Cardano Preprod using a
 protocol-compatible, self-hosted analogue of Orcfax's real publishing
 protocol, and read back with a Lucid script that parses the revenue amount.
-The validator, off-chain scripts, and test suite went through two rounds of
-review after the initial build: a security audit, and then an external PR
-review that found a deeper bypass the first round's fix missed. Every finding
-from both rounds was fixed, and the fact statement was re-published on-chain
-against the fully corrected contract each time. The full history (what was
-tried, what didn't work, and why) is kept below so the same hours aren't
-spent twice.
+The validator, off-chain scripts, and test suite went through three rounds of
+review after the initial build: a security audit, an external PR review that
+found a deeper bypass the first round's fix missed, and a follow-up pass on
+that same PR review that found the CI workflow claim didn't match what was
+actually committed and that the new validity-range check still had a gap.
+Every finding from all three rounds was fixed, and the fact statement was
+re-published on-chain against the fully corrected contract each time. The
+full history (what was tried, what didn't work, and why) is kept below so the
+same hours aren't spent twice.
 
 ## Why "self-hosted, protocol-compatible" and not literally on Orcfax's network
 
@@ -184,7 +186,10 @@ verification-key-hash:
   CIP-67-style convention), requires that token to be locked at exactly one
   output at the script's own address in the same transaction, requires the
   locked datum's `context.collector` to equal `publisher`, requires
-  `created_at_ms` to be non-negative and fall within `self.validity_range`,
+  `self.validity_range` to have finite lower and upper bounds no more than
+  `max_validity_range_width_ms` (one hour) apart and requires `created_at_ms`
+  to be non-negative and fall within that range (see Finding 2, third review
+  round below; an unbounded range would otherwise make this check vacuous),
   and requires the datum body itself to be well-formed: `period_start >= 0`,
   `period_start < period_end` (strictly, a zero-length period is rejected),
   `amount_minor_units > 0`, `currency` is exactly three uppercase ASCII
@@ -286,24 +291,56 @@ multi-UTxO bypass (`spend_fails_when_extracting_second_token_to_a_wallet`)
 failed, and only that one, before the fix was restored. The full Aiken
 suite grew from 14 to 25 tests; all 25 pass.
 
+## Third review round: the CI claim didn't match the branch, and the validity check wasn't binding
+
+A follow-up pass on the same PR review found two more issues: one
+documentation-versus-reality mismatch, and one place where the second
+round's own fix hadn't gone far enough.
+
+| # | Finding | Fix |
+|---|---|---|
+| 1 | The commit message and README both stated the CI workflow had been moved to `.github/workflows/orcfax-schema-ci.yml` at the repo root. It hadn't: `git ls-tree -r HEAD --name-only \| grep .github` returned nothing, and `git status` showed `.github/` as untracked. The file existed on disk but was never committed, most likely because the earlier guidance in this README's own history was to run `git add .` from inside `orcfax-schema/`, which never touches a sibling directory at the actual repo root. Zero workflow files existed anywhere in the repository, while the documentation asserted `aiken check -D` and `npm test` gated every PR | The workflow file is unchanged and still correct at `.github/workflows/orcfax-schema-ci.yml`; the fix is procedural, not code: it must be staged with `git add .github/` run from the repository root (not from inside `orcfax-schema/`), in the same commit as everything else in this round |
+| 2 | `interval.contains(self.validity_range, created_at_ms)` (the second round's fix) is vacuously true when the range is unbounded, and nothing required it to be bounded. A transaction built directly through Lucid, bypassing `publish-fact.ts`'s cooperating `validFrom`/`validTo` entirely, could leave the range as `interval.everything()` and declare any `created_at_ms` at all, including one far enough in the future to permanently win `query-fact.ts`'s largest-`created_at_ms`-wins selection over every genuine later publication. Backdating below chain time was already foreclosed (the ledger won't include a transaction before its own `validFrom`), but forward-dating was not | `mint(Publish, ...)` now requires both `self.validity_range` bounds to be `Finite` (aborting otherwise) and caps the range's width at `max_validity_range_width_ms` (one hour), on top of the existing `created_at_ms >= 0` and in-range checks. `publish-fact.ts`'s `validFrom`/`validTo` window was tightened from roughly 2 hours 5 minutes to 22 minutes to comfortably fit inside the new cap |
+
+The same "on-chain datum is directly constructible, so on-chain checks are
+what's actually authoritative" principle from `is_valid_body`'s own doc
+comment applies here too: `interval.contains` against a range nothing forces
+to be bounded is cooperation from a well-behaved off-chain script, not a
+contract-enforced guarantee, and the fix needed to close that gap the same
+way the multi-UTxO fix did.
+
+Verified the same way as every prior round: the `Finite`-bound and width-cap
+checks were temporarily reverted to the old `interval.contains` call, and
+`aiken check` re-run, confirming exactly the three new regression tests
+(`publish_fails_with_unbounded_validity_range`,
+`publish_fails_with_one_sided_infinite_validity_range`,
+`publish_fails_when_validity_range_exceeds_cap`) failed, and only those
+three, before the fix was restored. The Aiken suite grew from 25 to 28 tests;
+all 28 pass. The existing validity-range tests and the shared `publish_tx`
+test helper needed a bounded default range added, since they previously
+relied on `Transaction.placeholder`'s unbounded `interval.everything()`,
+which the new checks now correctly reject.
+
 ## Testing
 
 ```bash
 npm run test           # TypeScript: datum encode/decode round-trip + golden-CBOR test
-npm run test:onchain   # Aiken: aiken check, runs all 25 validator unit tests
+npm run test:onchain   # Aiken: aiken check, runs all 28 validator unit tests
 ```
 
 The Aiken suite (`onchain/validators/revenue_fact.ak`, appended after the
 validator block; Aiken supports calling a validator's handlers directly
 from a test in the same module, e.g. `revenue_fact.mint(publisher, redeemer,
-policy_id, tx)`) covers, across both review rounds: `Publish` succeeding on a
-valid signature and datum; failing without the publisher's signature;
+policy_id, tx)`) covers, across all three review rounds: `Publish` succeeding
+on a valid signature and datum; failing without the publisher's signature;
 failing when the datum names a different collector than the actual signer;
 failing on an inverted or zero-length period, a negative `period_start`, a
 negative or zero amount, a malformed or lowercase currency, a wrong-length
-`claim_hash`, a negative `created_at_ms`, or `created_at_ms` outside the
-transaction's validity range; succeeding when it's inside that range; failing
-on the wrong mint quantity; failing (by aborting, tested via Aiken's
+`claim_hash`, a negative `created_at_ms`, `created_at_ms` outside the
+transaction's validity range, an unbounded validity range, a one-sided
+infinite validity range, or a validity range wider than the one-hour cap;
+succeeding when the range is bounded, capped, and contains `created_at_ms`;
+failing on the wrong mint quantity; failing (by aborting, tested via Aiken's
 `fail`-annotated test form) when no output (or when two outputs) are
 locked at the script address; `Revoke` succeeding and failing symmetrically;
 `spend` succeeding when signed-and-burning, failing when
@@ -451,26 +488,27 @@ change and confirmation below comes from Blockfrost's independent indexer
 and is re-checkable by anyone with a Preprod Blockfrost key, without trusting
 this repo's own output.
 
-**Current publication (fully fixed contract, post-second-review):**
+**Current publication (fully fixed contract, post-third-review):**
 
 - **Transaction:**
-  [`19b25ab8c5a33793206cfc9f7976314e332d774603b7623afdeb41e7659f78d9`](https://preprod.cardanoscan.io/transaction/19b25ab8c5a33793206cfc9f7976314e332d774603b7623afdeb41e7659f78d9),
-  block 4932740, slot 128291790, `valid_contract: true`,
-  `invalid_before: 128291470`, `invalid_hereafter: 128298970` (confirming the
-  new bounded validity range from Finding 2's fix actually took effect on a
-  real transaction, not just in a unit test)
+  [`f0ed0879366b2c01e59bfaaab920062a9f690d403d2741373a5ac26529ccb203`](https://preprod.cardanoscan.io/transaction/f0ed0879366b2c01e59bfaaab920062a9f690d403d2741373a5ac26529ccb203),
+  block 4932897, slot 128295396, `valid_contract: true`,
+  `invalid_before: 128295234`, `invalid_hereafter: 128296554` (a 1,320-slot,
+  1,320,000ms window: bounded, and comfortably inside the one-hour cap,
+  confirming the third-round fix took effect on a real transaction, not just
+  in a unit test)
 - **Policy ID / script hash:**
-  `da16c1cc5fe6a3420ae313fafd7feb62d8fa3bf599cff14acb0d4742`
+  `10536f1c633164306322beb60ef92e3452fd3cab97c54038ae4addaa`
 - **Script address:**
-  `addr_test1wrdpdswvtln2xss2uvfl4ltlad3d373m7kvulu22evx5wssyzcyr4`
+  `addr_test1wqg9xmcuvvckgvrry2ltvrhe9c699lfu4wtu2spc4e9dm2s4qng96`
 
 `npm run query` output against that transaction:
 
 ```
 Fact statement found on-chain.
-  tx hash:       19b25ab8c5a33793206cfc9f7976314e332d774603b7623afdeb41e7659f78d9
+  tx hash:       f0ed0879366b2c01e59bfaaab920062a9f690d403d2741373a5ac26529ccb203
   feed id:       ZIV-REV/zivana-revenue-001/1
-  created at:    2026-07-13T20:36:10.731Z
+  created at:    2026-07-13T21:35:54.062Z
   participant:   did:prism:123456789abcdefghi
   period:        2026-05-01T00:00:00.000Z -> 2026-05-14T00:00:00.000Z
   revenue:       500000 NGN
@@ -479,12 +517,12 @@ Fact statement found on-chain.
 ```
 
 **How the wallet balance independently proves this happened on-chain, not
-in memory:** before this publish, the wallet held 9,993,958,530 lovelace.
-Blockfrost's own transaction record for this tx reports a fee of 279,994
+in memory:** before this publish, the wallet held 9,991,915,746 lovelace.
+Blockfrost's own transaction record for this tx reports a fee of 277,253
 lovelace, and the script output independently queried via
 `GET /txs/{hash}/utxos` holds 1,762,790 lovelace alongside the token;
-fee plus locked min-ADA is 2,042,784 lovelace. `9,993,958,530 − 2,042,784 =
-9,991,915,746`, which is exactly the balance
+fee plus locked min-ADA is 2,040,043 lovelace. `9,991,915,746 - 2,040,043 =
+9,989,875,703`, which is exactly the balance
 `GET /addresses/{address}` reports right now. Numbers this precise, matching
 Blockfrost's own independently-computed figures rather than anything this
 repo asserts about itself, aren't something an in-memory emulator would
@@ -497,6 +535,7 @@ proved, at each stage, that this pipeline could reach real Preprod:
 
 | Stage | Transaction | Policy ID | Script address |
 |---|---|---|---|
+| After second PR review (multi-UTxO bypass, created_at_ms, CI location) | [`19b25ab8c5a33793206cfc9f7976314e332d774603b7623afdeb41e7659f78d9`](https://preprod.cardanoscan.io/transaction/19b25ab8c5a33793206cfc9f7976314e332d774603b7623afdeb41e7659f78d9), block 4932740, slot 128291790 | `da16c1cc5fe6a3420ae313fafd7feb62d8fa3bf599cff14acb0d4742` | `addr_test1wrdpdswvtln2xss2uvfl4ltlad3d373m7kvulu22evx5wssyzcyr4` |
 | After first security review (Findings 1-6) | [`e1329b57c35e2e24afcae3dde31776372ff34b0f53b9db087f2ff422e9de80e0`](https://preprod.cardanoscan.io/transaction/e1329b57c35e2e24afcae3dde31776372ff34b0f53b9db087f2ff422e9de80e0), block 4932403, slot 128284807 | `15784fa7b2899f4a374c31b6b37c6addef4373e4a2c16aac61b0fb89` | `addr_test1wq2hsna8k2ye7j3hfscmdvmudtw77smnuj3vz64vvxc0hzg05t0fl` |
 | Original build, pre-review | [`eb21b096895370da12f0b1d8273b523d79d088c5b25843d14762b8409b2e6790`](https://preprod.cardanoscan.io/transaction/eb21b096895370da12f0b1d8273b523d79d088c5b25843d14762b8409b2e6790), block 4930601, slot 128243513 | `e52a1de593558964aa4d9ad5e3614b5d8ed5c6a8b29ddd771fdb3aa5` | `addr_test1wrjj5809jd2cje92fkddtcmpfdwca4wx4zefmhthrldn4fgwg66ex` |
 
@@ -505,13 +544,15 @@ proved, at each stage, that this pipeline could reach real Preprod:
 ```
 .github/workflows/
   orcfax-schema-ci.yml  at the actual repo root (see Finding 3, second review round,
-                        for why it isn't nested inside orcfax-schema/)
+                        for why it isn't nested inside orcfax-schema/, and Finding 1,
+                        third review round, for why it must be staged with
+                        `git add .github/` run from the repo root)
 schemas/
   revenue-event.jsonld        off-chain Schema.org fact statement (the claim)
   revenue-event.schema.json   JSON Schema used to validate it
 onchain/
   lib/zivana/types.ak         FsDat/Statement/Context/RevenueBody datum types
-  validators/revenue_fact.ak  mint/spend validator + its 25 unit tests
+  validators/revenue_fact.ak  mint/spend validator + its 28 unit tests
   plutus.json                 compiled blueprint (generated by `aiken build`)
 src/
   types/fact.ts          TS types for the off-chain JSON-LD
