@@ -32,10 +32,12 @@ async function main() {
 
   const [periodStart, periodEnd] = claim.temporalCoverage.split("/");
 
+  const now = Date.now();
+
   const datum: RevenueFactDatum = {
     statement: {
       feed_id: fromText(`ZIV-REV/${claim.identifier}/1`),
-      created_at: BigInt(Date.now()),
+      created_at_ms: BigInt(now),
       body: {
         amount_minor_units: toMinorUnits(claim.about.value.value),
         currency: fromText(claim.about.value.currency),
@@ -57,6 +59,12 @@ async function main() {
   const datumCbor = Data.to(datum, RevenueFactDatumSchema as any);
   const redeemer = Data.to("Publish", FsRedeemerSchema as any);
 
+  // Bounds self.validity_range on-chain so the validator's
+  // interval.contains(self.validity_range, created_at_ms) check is
+  // meaningful rather than trivially satisfied by an unbounded range.
+  const validFrom = now - 5 * 60 * 1000;
+  const validTo = now + 2 * 60 * 60 * 1000;
+
   const tx = await lucid
     .newTx()
     .mintAssets({ [policyId]: 1n }, redeemer)
@@ -67,6 +75,8 @@ async function main() {
       { [policyId]: 1n }
     )
     .addSigner(walletAddress)
+    .validFrom(validFrom)
+    .validTo(validTo)
     .complete();
 
   const signed = await tx.sign.withWallet().complete();

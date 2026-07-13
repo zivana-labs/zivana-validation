@@ -47,7 +47,7 @@ async function main() {
   }
 
   const { utxo: factUtxo, datum } = decoded.reduce((latest, candidate) =>
-    candidate.datum.statement.created_at > latest.datum.statement.created_at
+    candidate.datum.statement.created_at_ms > latest.datum.statement.created_at_ms
       ? candidate
       : latest
   );
@@ -58,7 +58,7 @@ async function main() {
   const feedId = toText(datum.statement.feed_id);
   const periodStart = new Date(Number(datum.statement.body.period_start) * 1000);
   const periodEnd = new Date(Number(datum.statement.body.period_end) * 1000);
-  const createdAt = new Date(Number(datum.statement.created_at));
+  const createdAt = new Date(Number(datum.statement.created_at_ms));
 
   console.log("Fact statement found on-chain.");
   console.log("  tx hash:      ", factUtxo.txHash);

@@ -15,7 +15,10 @@ export type RevenueBody = Data.Static<typeof RevenueBodySchema>;
 
 export const StatementSchema = Data.Object({
   feed_id: Data.Bytes(),
-  created_at: Data.Integer(),
+  // Milliseconds since the Unix epoch — matches Cardano's own
+  // ValidityRange unit, since the validator checks this against
+  // self.validity_range directly.
+  created_at_ms: Data.Integer(),
   body: RevenueBodySchema,
 });
 export type Statement = Data.Static<typeof StatementSchema>;

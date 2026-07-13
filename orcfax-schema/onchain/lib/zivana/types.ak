@@ -15,7 +15,10 @@ use aiken/crypto.{VerificationKeyHash}
 /// `Statement<t>`.
 pub type Statement<t> {
   feed_id: ByteArray,
-  created_at: Int,
+  /// Milliseconds since the Unix epoch — the same unit Cardano's own
+  /// `ValidityRange` uses, so it can be checked against
+  /// `self.validity_range` directly without a unit conversion.
+  created_at_ms: Int,
   body: t,
 }
 

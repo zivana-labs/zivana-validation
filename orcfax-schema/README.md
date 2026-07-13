@@ -1,14 +1,16 @@
-# VAL-004 — Orcfax Revenue Event Fact Statement
+# VAL-004: Orcfax Revenue Event Fact Statement
 
 A Schema.org fact-statement for an SME revenue event is defined here,
 published as a signed on-chain datum on Cardano Preprod using a
 protocol-compatible, self-hosted analogue of Orcfax's real publishing
 protocol, and read back with a Lucid script that parses the revenue amount.
-The validator, off-chain scripts, and test suite went through a security
-audit after the initial build; every finding from that audit was fixed, and
-the fact statement was re-published on-chain against the corrected contract.
-The full history — what was tried, what didn't work, and why — is kept below
-so the same hours aren't spent twice.
+The validator, off-chain scripts, and test suite went through two rounds of
+review after the initial build: a security audit, and then an external PR
+review that found a deeper bypass the first round's fix missed. Every finding
+from both rounds was fixed, and the fact statement was re-published on-chain
+against the fully corrected contract each time. The full history (what was
+tried, what didn't work, and why) is kept below so the same hours aren't
+spent twice.
 
 ## Why "self-hosted, protocol-compatible" and not literally on Orcfax's network
 
@@ -21,16 +23,16 @@ can mean in practice:
    [docs.orcfax.io/feed-overview](https://docs.orcfax.io/feed-overview), the
    live network publishes price/exchange-rate data (ADA-USD, FACT-ADA, etc.).
    There is no fact-statement type for an arbitrary business claim like an SME
-   revenue event — subsidized and sponsored feeds are still CER feeds.
+   revenue event; subsidized and sponsored feeds are still CER feeds.
 2. **Publishing requires an ITN validator license.** Per
    [docs.orcfax.io/itn-overview](https://docs.orcfax.io/itn-overview), writing
    to the live network requires a Validator License NFT plus a 500,000 FACT
    deposit and running validator node infrastructure. There is no self-serve
    testnet signup for third-party developers to publish custom fact
-   statements — which is why no "login" flow exists to find.
+   statements, which is why no "login" flow exists to find.
 
 So a literal "publish a custom revenue-event fact statement on Orcfax's live
-testnet" isn't something a third party can do — the protocol doesn't accept
+testnet" isn't something a third party can do: the protocol doesn't accept
 that feed type, and only licensed validators can write to it at all.
 
 What **is** real and verifiable: Orcfax's on-chain datum shape, and the fact
@@ -38,9 +40,9 @@ that real fact statements are freely queryable by anyone right now (e.g.
 [preview.explorer.orcfax.io](https://preview.explorer.orcfax.io), or the
 PreProd `ADA-USD|USD-ADA` feed documented in
 [orcfax/datum-demo](https://github.com/orcfax/datum-demo)). That real,
-verified datum shape — confirmed against Orcfax's own publishing dApp source
-([orcfax/publish](https://github.com/orcfax/publish),
-`aik/lib/orcfax/types.ak`) — was used as the basis for a single-signer,
+verified datum shape (confirmed against Orcfax's own publishing dApp source,
+[orcfax/publish](https://github.com/orcfax/publish),
+`aik/lib/orcfax/types.ak`) was used as the basis for a single-signer,
 self-hosted Aiken validator, which was deployed and published to Preprod. The
 result is signed, on a real public testnet, and datum-compatible with
 Orcfax's real protocol; it just isn't gated behind their validator-license
@@ -62,7 +64,7 @@ consensus layer, which isn't something a 12-day engineering task can acquire.
    (Schema.org Claim + Observation)
                 |
 2. Validate its structure              npm run validate
-   (ajv against revenue-event.schema.json) — also run automatically
+   (ajv against revenue-event.schema.json), also run automatically
    as the first step of `npm run publish`
                 |
 3. Hash the claim doc (sha256)         scripts/publish-fact.ts
@@ -76,7 +78,7 @@ consensus layer, which isn't something a 12-day engineering task can acquire.
 5. Consumer locates the UTxO(s) by     npm run query
    policy id, decodes the inline
    datum(s), picks the one with the
-   latest created_at, reads the
+   latest created_at_ms, reads the
    revenue amount
                 |
 6. Revoke (optional): burn the token   a Revoke-redeemer mint + spend of
@@ -87,9 +89,9 @@ consensus layer, which isn't something a 12-day engineering task can acquire.
 
 ## Off-chain schema (Schema.org JSON-LD)
 
-`schemas/revenue-event.jsonld` — a `Claim` whose subject (`about`) is a
+`schemas/revenue-event.jsonld`: a `Claim` whose subject (`about`) is a
 Schema.org `Observation` (the type Schema.org defines specifically for "a
-measured value about something, over a period" — not the invented
+measured value about something, over a period", not the invented
 `EconomicEvent`, which isn't a real Schema.org type, or a bare string
 `claimInterpreter`, which the original draft used and which Schema.org
 requires to be an `Organization`/`Person` object):
@@ -129,7 +131,7 @@ requires to be an `Organization`/`Person` object):
 validates the document above (required fields, `temporalCoverage` as an ISO
 8601 interval, ISO 4217 currency code, positive value). It's run standalone
 with `npm run validate`, and is also run automatically at the top of
-`scripts/publish-fact.ts` — publishing a document that fails this check is
+`scripts/publish-fact.ts`: publishing a document that fails this check is
 rejected before any wallet or network activity happens.
 
 ```
@@ -146,13 +148,20 @@ Schema validation PASSED
 field-for-field (verified against `orcfax/publish`'s `aik/lib/orcfax/types.ak`):
 
 ```
-Statement<t> { feed_id: ByteArray, created_at: Int, body: t }
+Statement<t> { feed_id: ByteArray, created_at_ms: Int, body: t }
 Context      { collector: VerificationKeyHash }
 FsDat<t>     { statement: Statement<t>, context: Context }
 ```
 
+`created_at_ms` is milliseconds since the Unix epoch, deliberately the same
+unit as Cardano's own `ValidityRange`, so it can be checked against
+`self.validity_range` directly without a unit conversion (see Finding 2 in
+the second review round below; the field was originally named `created_at`
+with no unit marker at all, and carried milliseconds while the body's own
+`period_start`/`period_end` carry seconds).
+
 `t` is filled here with a custom `RevenueBody` (Orcfax's live network only
-ever fills `t` with a `Rational` price ratio for CER feeds — there is no
+ever fills `t` with a `Rational` price ratio for CER feeds; there is no
 revenue-event body type in the real protocol):
 
 ```
@@ -172,25 +181,39 @@ verification-key-hash:
 
 - **`mint(Publish, ...)`** requires `publisher`'s signature, requires exactly
   one token minted with an empty asset name (matching Orcfax's real
-  CIP-67-style convention), requires that token to be locked at the script's
-  own address in the same transaction, requires the locked datum's
-  `context.collector` to equal `publisher`, and — following the security
-  review below — requires the datum body itself to be well-formed:
-  `period_start <= period_end`, `amount_minor_units >= 0`, and a 3-byte
-  `currency`.
+  CIP-67-style convention), requires that token to be locked at exactly one
+  output at the script's own address in the same transaction, requires the
+  locked datum's `context.collector` to equal `publisher`, requires
+  `created_at_ms` to be non-negative and fall within `self.validity_range`,
+  and requires the datum body itself to be well-formed: `period_start >= 0`,
+  `period_start < period_end` (strictly, a zero-length period is rejected),
+  `amount_minor_units > 0`, `currency` is exactly three uppercase ASCII
+  letters, and `claim_hash` is exactly 32 bytes. These content checks exist
+  because the on-chain datum is directly constructible via Lucid without
+  ever going through the off-chain JSON-LD/ajv layer: the on-chain checks,
+  not the off-chain schema, are what's actually authoritative.
 - **`mint(Revoke, ...)`** requires `publisher`'s signature and requires
-  exactly one token to be burned.
-- **`spend`** requires `publisher`'s signature *and* requires this same
-  transaction to burn the token — i.e. spending is revoke-only. This closes
-  a gap found during review (see Finding 1 below): without it, `publisher`
-  could move the token to a new output with an entirely different datum
-  without ever re-running `mint`'s content checks, silently rewriting an
-  already-published fact statement.
+  exactly one token to be burned (not two, see Finding 1 in the second
+  review round: batch-revoking more than one fact UTxO per transaction is
+  intentionally rejected).
+- **`spend`** requires `publisher`'s signature, requires this same
+  transaction to burn this UTxO's token, *and* requires that no fs token
+  survives in any output, i.e. spending is revoke-only, and that can't be
+  partially satisfied when more than one fact UTxO is being spent at once.
+  Both conditions were needed: the first closes the single-UTxO "silent
+  rewrite" gap (move the token to a new output with a different datum
+  without re-running `mint`'s content checks); the second closes a deeper
+  multi-UTxO version of the same gap that the first fix alone didn't catch
+  (spend two fact UTxOs, burn only one token, pay the surviving token to an
+  ordinary wallet output; each spend call only checked that *a* burn
+  happened somewhere in the transaction, not that *this input's* token was
+  the one destroyed). Both are documented as Finding 1 in their respective
+  review rounds below.
 - **`else`** unconditionally fails, so no other script purpose can be used
   as a confused-deputy path.
 
 Orcfax's real federated multi-notary Ed25519 logic and the separate FSP
-pointer-rotation script are intentionally not reproduced here — that logic
+pointer-rotation script are intentionally not reproduced here: that logic
 isn't published, and a federated consensus layer isn't needed for one
 self-hosted signer.
 
@@ -203,12 +226,12 @@ of which have since been fixed and verified:
 
 | # | Finding | Fix |
 |---|---|---|
-| 1 | `spend` only checked the publisher's signature, so a published fact statement could be silently rewritten (new datum, same token, no burn) without re-running `mint`'s content checks | `spend` now additionally requires the transaction to burn the token — spending is revoke-only |
-| 2 | The validator accepted any datum body content once signed — inverted periods, negative amounts, malformed currency codes all validated | `mint(Publish, ...)` now checks `period_start <= period_end`, `amount_minor_units >= 0`, and `currency` is exactly 3 bytes |
-| 3 | `publish-fact.ts` never ran the ajv schema check — an invalid JSON-LD document could still be published | `validateClaim()` (shared with `validate-schema.ts`) now runs first in `publish-fact.ts` and aborts before any transaction is built |
+| 1 | `spend` only checked the publisher's signature, so a published fact statement could be silently rewritten (new datum, same token, no burn) without re-running `mint`'s content checks | `spend` now additionally requires the transaction to burn the token: spending is revoke-only |
+| 2 | The validator accepted any datum body content once signed, inverted periods, negative amounts, malformed currency codes all validated | `mint(Publish, ...)` now checks `period_start <= period_end`, `amount_minor_units >= 0`, and `currency` is exactly 3 bytes |
+| 3 | `publish-fact.ts` never ran the ajv schema check, so an invalid JSON-LD document could still be published | `validateClaim()` (shared with `validate-schema.ts`) now runs first in `publish-fact.ts` and aborts before any transaction is built |
 | 4 | Currency-to-minor-units used `Math.round(value * 100)`, a classic IEEE-754 float bug (e.g. `1.005 * 100 === 100.49999999999999`, silently mis-rounding) | Replaced with `toMinorUnits()` (`src/util/money.ts`), which converts via the value's decimal string representation and throws rather than guessing when precision would be lost |
-| 5 | `query-fact.ts` used `.find()` — the first matching UTxO, not necessarily the most recent, if `Publish` were ever run more than once | Now collects all matching UTxOs, decodes each, and picks the one with the greatest `created_at`, warning if more than one exists |
-| 6 | No automated tests existed anywhere in the project — `aiken check` reported zero test scenarios, and there was no TypeScript test for the datum encoding | 14 Aiken unit tests added (covering `Publish`, `Revoke`, and `spend`, including a direct regression test for Finding 1) and 4 TypeScript tests added (`tests/datum.test.ts`), including a golden-CBOR test anchored to a real on-chain transaction |
+| 5 | `query-fact.ts` used `.find()`, the first matching UTxO, not necessarily the most recent, if `Publish` were ever run more than once | Now collects all matching UTxOs, decodes each, and picks the one with the greatest `created_at`, warning if more than one exists |
+| 6 | No automated tests existed anywhere in the project: `aiken check` reported zero test scenarios, and there was no TypeScript test for the datum encoding | 14 Aiken unit tests added (covering `Publish`, `Revoke`, and `spend`, including a direct regression test for Finding 1) and 4 TypeScript tests added (`tests/datum.test.ts`), including a golden-CBOR test anchored to a real on-chain transaction |
 
 Each fix was verified by more than "it compiles": for Finding 1, the old
 permissive `spend` logic was temporarily restored and `aiken check` was
@@ -216,28 +239,78 @@ re-run, confirming exactly the one regression test written for it failed
 (13/14 passing) before the fix was restored; for the datum-encoding tests, a
 field-order swap was temporarily injected into the TypeScript schema to
 confirm the golden-CBOR test (and only that one) caught it, since the plain
-round-trip tests stayed green even under that regression — they only prove
+round-trip tests stayed green even under that regression; they only prove
 `Data.to`/`Data.from` agree with each other, not that either agrees with the
 real on-chain Aiken layout.
+
+## Second review round: an external PR review found a deeper bypass
+
+The fixed contract above was then reviewed externally as a pull request. The
+review agreed with the overall approach (the protocol research, the
+datum-shape verification, the golden-CBOR technique) but found that the
+Finding 1 fix, while closing the single-UTxO rewrite path, didn't close a
+multi-UTxO version of the same gap, plus a real unit-consistency bug and a
+misconfigured CI workflow. All of it was verified independently before being
+accepted (see the reasoning below) and all of it has since been fixed.
+
+| # | Finding | Fix |
+|---|---|---|
+| 1 (blocking) | `spend`'s revoke-only check only confirmed *a* token was burned somewhere in the transaction, not that *this input's* token was the one destroyed. Given two fact UTxOs A and B (a normal state; nothing prevents `Publish` running twice), a transaction could spend both, burn only one, and pay the surviving token to an ordinary wallet output. `spend(A)` and `spend(B)` each independently saw the same transaction-wide `-1` burn and both passed, even though only one of the two tokens actually left circulation. That token could then be paid back to the script address later with an arbitrary hand-crafted datum, since a plain output never invokes `mint`'s content checks | `spend` now additionally requires that zero fs tokens remain across all outputs, summed. This makes the extraction transaction unbalanceable: two tokens in, `mint(Revoke)` caps the burn at exactly `-1`, so the second token has nowhere to go and the transaction can't be constructed at all |
+| 2 | `created_at` was milliseconds (`Date.now()`), while `period_start`/`period_end` were seconds: same `Int` type, no unit marker anywhere, genuinely ambiguous for any consumer contract doing arithmetic across those fields. It was also entirely unchecked on-chain: not required to be non-negative, and not tied to the transaction's validity range, even though `query-fact.ts`'s "latest `created_at` wins" selection logic makes an unbounded self-declared timestamp able to permanently outrank every legitimate future publication | Renamed to `created_at_ms` (types, TS schema, and every reference updated); `mint(Publish)` now requires it to be non-negative and to fall within `self.validity_range`; `scripts/publish-fact.ts` now sets an explicit bounded `validFrom`/`validTo` around the transaction's actual submission time so the check is meaningful rather than vacuously true against an unbounded range |
+| 3 | `orcfax-schema/onchain/.github/workflows/continuous-integration.yml` (an `aiken new` scaffold artifact) was never going to run: GitHub Actions only reads workflows from the *repository root's* `.github/workflows/`, and this repo's root is `zivana-validation/`, several directories up. It gave the false impression of CI coverage that never executed on any PR | Moved to `.github/workflows/orcfax-schema-ci.yml` at the actual repo root, with a `paths` filter scoped to `orcfax-schema/**` and `working-directory` set per job; added a second job running the TypeScript side (`tsc --noEmit`, `npm run test`), which the original workflow never covered either |
+| minor | On-chain `amount_minor_units >= 0` permitted zero; the off-chain JSON Schema already required `exclusiveMinimum: 0`. Since the on-chain datum is constructible directly and is the authoritative artifact, the stricter rule belongs there too | Tightened to `amount_minor_units > 0` |
+| minor | `currency_is_iso4217_length` only checked length (3 bytes); three arbitrary bytes passed, where the off-chain schema requires `^[A-Z]{3}$` | Added a byte-range check (each byte between `A` and `Z`) alongside the length check |
+| minor | `claim_hash` had no length constraint at all | Required to be exactly 32 bytes (a sha256 digest's length) |
+| minor | `period_is_ordered` permitted `period_start == period_end` (a zero-length period) and didn't reject negative timestamps | Tightened to strict `period_start < period_end`, plus `period_start >= 0` |
+| minor | `list.find` only content-checked the *first* output at the script address; a second such output in the same transaction went unexamined (not forgeable, only one token is ever minted, but it strands ADA recoverable only via a later burn) | Changed to `list.filter` plus `expect [locked_output] = ...`, which aborts unless there's exactly one |
+
+One point raised in review was deliberately not changed as suggested: whether
+`period_start == period_end` (a same-day revenue snapshot) should be
+rejected. That was treated as a product decision rather than an obvious
+defect (same-day periods seem like a legitimate business case), but since
+the review asked for it and it costs nothing to be strict, it was folded into
+the `period_start < period_end` fix above rather than left as an open
+disagreement.
+
+The review also noted a broader Phase 0 program requirement, that an
+attestation be *consumed inside another Aiken validator*, not just read
+off-chain, which isn't in this ticket's acceptance criteria and wasn't
+independently verifiable from anything in this repo. It's logged here as a
+candidate follow-up rather than folded into this PR, consistent with the
+review's own recommendation.
+
+Verification for this round followed the same discipline as the first: the
+`fs_tokens_in_outputs == 0` check was temporarily removed and `aiken check`
+re-run, confirming exactly the one new regression test written for the
+multi-UTxO bypass (`spend_fails_when_extracting_second_token_to_a_wallet`)
+failed, and only that one, before the fix was restored. The full Aiken
+suite grew from 14 to 25 tests; all 25 pass.
 
 ## Testing
 
 ```bash
 npm run test           # TypeScript: datum encode/decode round-trip + golden-CBOR test
-npm run test:onchain   # Aiken: aiken check, runs all 14 validator unit tests
+npm run test:onchain   # Aiken: aiken check, runs all 25 validator unit tests
 ```
 
 The Aiken suite (`onchain/validators/revenue_fact.ak`, appended after the
-validator block — Aiken supports calling a validator's handlers directly
+validator block; Aiken supports calling a validator's handlers directly
 from a test in the same module, e.g. `revenue_fact.mint(publisher, redeemer,
-policy_id, tx)`) covers: `Publish` succeeding on a valid signature and datum;
-failing without the publisher's signature; failing when the datum names a
-different collector than the actual signer; failing on an inverted period, a
-negative amount, a malformed currency, or the wrong mint quantity; failing
-(by aborting, tested via Aiken's `fail`-annotated test form) when no output
-is locked at all; `Revoke` succeeding and failing symmetrically; and `spend`
-succeeding when signed-and-burning, failing when signed-but-not-burning (the
-Finding 1 regression test), and failing when burning-but-not-signed.
+policy_id, tx)`) covers, across both review rounds: `Publish` succeeding on a
+valid signature and datum; failing without the publisher's signature;
+failing when the datum names a different collector than the actual signer;
+failing on an inverted or zero-length period, a negative `period_start`, a
+negative or zero amount, a malformed or lowercase currency, a wrong-length
+`claim_hash`, a negative `created_at_ms`, or `created_at_ms` outside the
+transaction's validity range; succeeding when it's inside that range; failing
+on the wrong mint quantity; failing (by aborting, tested via Aiken's
+`fail`-annotated test form) when no output (or when two outputs) are
+locked at the script address; `Revoke` succeeding and failing symmetrically;
+`spend` succeeding when signed-and-burning, failing when
+signed-but-not-burning, failing when burning-but-not-signed, failing when
+extracting a second UTxO's token to a wallet output (the multi-UTxO
+regression test), and correctly rejecting a two-UTxO batch revoke at every
+layer.
 
 The TypeScript suite (`tests/datum.test.ts`) covers a plain round-trip, a
 round-trip with all-zero edge values, the `Publish`/`Revoke` redeemer
@@ -265,7 +338,7 @@ npm run gen-wallet
 
 cp .env.example .env   # if starting fresh; fill in BLOCKFROST_API_KEY, WALLET_SEED, WALLET_ADDRESS
 
-npm run build:onchain   # aiken build — compiles onchain/validators, writes onchain/plutus.json
+npm run build:onchain   # aiken build: compiles onchain/validators, writes onchain/plutus.json
 ```
 
 `.env` is git-ignored; nothing in it is committed.
@@ -289,7 +362,7 @@ Publishing then failed with `Your wallet does not have enough funds`, even
 though Blockfrost confirmed the address held 10,000 test ADA. The cause:
 `Lucid(...).selectWallet.fromSeed(seed)`, called with no `addressType`
 option, derives a **Base** address (payment + stake credential) from the
-same seed — a different bech32 string than the Enterprise address, even
+same seed, a different bech32 string than the Enterprise address, even
 though the underlying payment key is identical. Lucid's coin selection
 queries whatever address it derives, found nothing there, and reported
 "insufficient funds" rather than "wrong address." The fix was passing the
@@ -304,8 +377,8 @@ error claiming the datum object is missing TypeBox-internal properties like
 `static`/`type`/`[Kind]`. This is a bundling artifact: the real signature
 distinguishes the value type (`Data.Static<T>`) from the schema type (`T`),
 but the shipped `.d.ts` collapses both to the same `T`, making the call
-un-typeable in either direction. The runtime behavior is unaffected — this
-is exactly the documented Lucid Evolution `Data.to(value, schema)` pattern —
+un-typeable in either direction. The runtime behavior is unaffected (this
+is exactly the documented Lucid Evolution `Data.to(value, schema)` pattern),
 so the fix was a targeted `as any` cast on the schema argument, commented at
 each call site rather than silently suppressed.
 
@@ -316,19 +389,19 @@ validator once the real stdlib types (`Transaction`, `Output`,
 convention (`validator_name.handler_name(params..., args...)`, plus the
 `fail`-annotated test form for expected-abort cases) were confirmed directly
 against the installed `aiken-lang/stdlib` source and the official
-`aiken-lang.org` docs before writing code — the payoff of not guessing.
+`aiken-lang.org` docs before writing code: the payoff of not guessing.
 
 **Round-trip tests alone don't prove cross-language correctness.** The
 initial TypeScript test suite only checked that `Data.to` followed by
 `Data.from` returns the original value. That's necessary but not
 sufficient: a field reordered in `src/onchain/datum.ts`'s `Data.Object`
 schema would still round-trip against itself even though it would no longer
-match `onchain/lib/zivana/types.ak`'s actual field order — proven by
+match `onchain/lib/zivana/types.ak`'s actual field order, proven by
 deliberately swapping `period_start`/`period_end` in the schema and watching
 the round-trip tests stay green. The fix was a golden-CBOR test: known field
 values are encoded and compared byte-for-byte against the actual inline
 datum Blockfrost returned for a real, already-published transaction. That
-test — and only that test — failed under the same injected swap.
+test, and only that test, failed under the same injected swap.
 
 **Every fix was proven to catch its own regression before being trusted.**
 For each of the six audit findings, the broken behavior was temporarily
@@ -337,77 +410,108 @@ and the fix was then restored and reconfirmed green. This is called out
 explicitly because a test suite that has never been observed to fail is not
 yet known to be testing anything.
 
+**A passing test suite doesn't mean a fix is complete; it means the fix
+handles what the tests thought to cover.** The single-UTxO regression test
+for Finding 1 passed the moment the revoke-only `spend` check was added, and
+that was treated as proof the immutability gap was closed. It closed the
+single-UTxO version of it. A second, wider path (spending two fact UTxOs at
+once, burning one, extracting the other) used the exact same "was a burn
+present somewhere" logic and slipped past the same fix, undetected by 14/14
+passing tests, because nothing in that suite constructed a multi-input
+transaction. The lesson carried forward: when a fix closes "path X," it's
+worth spending a few minutes asking what a structurally similar but wider
+version of path X would look like, before calling the test green enough.
+
+**GitHub Actions workflows are silently inert outside `<repo-root>/.github/workflows/`.**
+`aiken new` scaffolds a `.github/workflows/continuous-integration.yml` inside
+the *project* directory it creates, fine for a project that *is* its own
+repository, wrong here, since `orcfax-schema/` is a subdirectory of a larger
+monorepo. The workflow file existed, looked complete, and never ran a single
+time. Nothing in `aiken new`'s output or this repo's tooling would have
+surfaced that on its own; it took an external review actually checking where
+GitHub Actions reads from.
+
+**Renaming a field doesn't change its CBOR encoding, but the unit it holds
+matters far more than its name.** `created_at` (ms) sitting next to
+`period_start`/`period_end` (seconds) compiled fine, encoded fine, and only
+became a problem when read by something that needed to compare them, which
+nothing in this repo's own test suite did, since `query-fact.ts` treats each
+field independently. A future consumer validator would have hit this
+immediately. Renaming to `created_at_ms` doesn't change any encoded bytes
+(Aiken records are positional Constrs; TypeScript-side field names are purely
+a label), which is why the existing golden-CBOR test needed a value refresh
+for the new transaction but not a structural rewrite.
+
 ## Verification (live, independently checkable)
 
-Both transactions below are real, confirmed Cardano Preprod transactions —
+All transactions below are real, confirmed Cardano Preprod transactions,
 not an in-memory emulator. `src/services/orcfax.ts` only ever constructs a
 `Blockfrost` provider (never Lucid's local `Emulator`), so every balance
 change and confirmation below comes from Blockfrost's independent indexer
 and is re-checkable by anyone with a Preprod Blockfrost key, without trusting
 this repo's own output.
 
-**Current publication (fixed contract, post-security-review):**
+**Current publication (fully fixed contract, post-second-review):**
 
 - **Transaction:**
-  [`e1329b57c35e2e24afcae3dde31776372ff34b0f53b9db087f2ff422e9de80e0`](https://preprod.cardanoscan.io/transaction/e1329b57c35e2e24afcae3dde31776372ff34b0f53b9db087f2ff422e9de80e0)
-  — block 4932403, slot 128284807, `valid_contract: true`
+  [`19b25ab8c5a33793206cfc9f7976314e332d774603b7623afdeb41e7659f78d9`](https://preprod.cardanoscan.io/transaction/19b25ab8c5a33793206cfc9f7976314e332d774603b7623afdeb41e7659f78d9),
+  block 4932740, slot 128291790, `valid_contract: true`,
+  `invalid_before: 128291470`, `invalid_hereafter: 128298970` (confirming the
+  new bounded validity range from Finding 2's fix actually took effect on a
+  real transaction, not just in a unit test)
 - **Policy ID / script hash:**
-  `15784fa7b2899f4a374c31b6b37c6addef4373e4a2c16aac61b0fb89`
+  `da16c1cc5fe6a3420ae313fafd7feb62d8fa3bf599cff14acb0d4742`
 - **Script address:**
-  `addr_test1wq2hsna8k2ye7j3hfscmdvmudtw77smnuj3vz64vvxc0hzg05t0fl`
+  `addr_test1wrdpdswvtln2xss2uvfl4ltlad3d373m7kvulu22evx5wssyzcyr4`
 
 `npm run query` output against that transaction:
 
 ```
 Fact statement found on-chain.
-  tx hash:        e1329b57c35e2e24afcae3dde31776372ff34b0f53b9db087f2ff422e9de80e0
-  feed id:        ZIV-REV/zivana-revenue-001/1
-  created at:     2026-07-13T18:39:50.744Z
-  participant:    did:prism:123456789abcdefghi
-  period:         2026-05-01T00:00:00.000Z -> 2026-05-14T00:00:00.000Z
-  revenue:        500000 NGN
-  claim hash:     bde25322044dd46ee5e2243bca15fbb1d0d7321355e90e1d7eda99f656ba988f
-  collector pkh:  fc7ba6ddaf68027fad8c2c47265081814dcc10dafa643e1644de7e05
+  tx hash:       19b25ab8c5a33793206cfc9f7976314e332d774603b7623afdeb41e7659f78d9
+  feed id:       ZIV-REV/zivana-revenue-001/1
+  created at:    2026-07-13T20:36:10.731Z
+  participant:   did:prism:123456789abcdefghi
+  period:        2026-05-01T00:00:00.000Z -> 2026-05-14T00:00:00.000Z
+  revenue:       500000 NGN
+  claim hash:    bde25322044dd46ee5e2243bca15fbb1d0d7321355e90e1d7eda99f656ba988f
+  collector pkh: fc7ba6ddaf68027fad8c2c47265081814dcc10dafa643e1644de7e05
 ```
 
 **How the wallet balance independently proves this happened on-chain, not
-in memory:** the funding wallet's Blockfrost transaction history
-(`GET /addresses/{address}/transactions`) shows exactly two real
-transactions before this publish: the faucet funding
-(`7c60f3f20cdd0a6476f6eec46e9408eb37af39b983c7b8f146152d4f13d66e4e`) and the
-first, now-superseded publish below. After the publication above, the
-address balance dropped from 9,997,993,726 to 9,995,976,128 lovelace — a
-decrease of 2,017,598 lovelace, which reconciles exactly to the network fee
-Blockfrost recorded for this transaction (254,808 lovelace) plus the
-protocol-calculated minimum ADA locked at the script output alongside the
-token (1,762,790 lovelace, independently confirmed via
-`GET /txs/{hash}/utxos`). Numbers this precise, matching Blockfrost's own
-independently-computed figures, aren't something an in-memory emulator would
+in memory:** before this publish, the wallet held 9,993,958,530 lovelace.
+Blockfrost's own transaction record for this tx reports a fee of 279,994
+lovelace, and the script output independently queried via
+`GET /txs/{hash}/utxos` holds 1,762,790 lovelace alongside the token;
+fee plus locked min-ADA is 2,042,784 lovelace. `9,993,958,530 − 2,042,784 =
+9,991,915,746`, which is exactly the balance
+`GET /addresses/{address}` reports right now. Numbers this precise, matching
+Blockfrost's own independently-computed figures rather than anything this
+repo asserts about itself, aren't something an in-memory emulator would
 produce.
 
-**Superseded publication (pre-security-review, kept for provenance):** the
-validator fixes in the security review above changed the compiled script's
-hash, so this transaction now lives at a different, no-longer-current script
-address. It's kept here because it was the first real proof this pipeline
-could publish to Preprod at all, before Findings 1–6 were found and fixed.
+**Superseded publications, kept for provenance.** Each round of fixes changed
+the compiled validator's hash, so each of these lives at a script address
+nothing currently reads from. They're kept because they're what actually
+proved, at each stage, that this pipeline could reach real Preprod:
 
-- **Transaction:**
-  [`eb21b096895370da12f0b1d8273b523d79d088c5b25843d14762b8409b2e6790`](https://preprod.cardanoscan.io/transaction/eb21b096895370da12f0b1d8273b523d79d088c5b25843d14762b8409b2e6790)
-  — block 4930601, slot 128243513, `valid_contract: true`
-- **Policy ID / script hash (pre-fix):**
-  `e52a1de593558964aa4d9ad5e3614b5d8ed5c6a8b29ddd771fdb3aa5`
-- **Script address (pre-fix):**
-  `addr_test1wrjj5809jd2cje92fkddtcmpfdwca4wx4zefmhthrldn4fgwg66ex`
+| Stage | Transaction | Policy ID | Script address |
+|---|---|---|---|
+| After first security review (Findings 1-6) | [`e1329b57c35e2e24afcae3dde31776372ff34b0f53b9db087f2ff422e9de80e0`](https://preprod.cardanoscan.io/transaction/e1329b57c35e2e24afcae3dde31776372ff34b0f53b9db087f2ff422e9de80e0), block 4932403, slot 128284807 | `15784fa7b2899f4a374c31b6b37c6addef4373e4a2c16aac61b0fb89` | `addr_test1wq2hsna8k2ye7j3hfscmdvmudtw77smnuj3vz64vvxc0hzg05t0fl` |
+| Original build, pre-review | [`eb21b096895370da12f0b1d8273b523d79d088c5b25843d14762b8409b2e6790`](https://preprod.cardanoscan.io/transaction/eb21b096895370da12f0b1d8273b523d79d088c5b25843d14762b8409b2e6790), block 4930601, slot 128243513 | `e52a1de593558964aa4d9ad5e3614b5d8ed5c6a8b29ddd771fdb3aa5` | `addr_test1wrjj5809jd2cje92fkddtcmpfdwca4wx4zefmhthrldn4fgwg66ex` |
 
 ## Project layout
 
 ```
+.github/workflows/
+  orcfax-schema-ci.yml  at the actual repo root (see Finding 3, second review round,
+                        for why it isn't nested inside orcfax-schema/)
 schemas/
   revenue-event.jsonld        off-chain Schema.org fact statement (the claim)
   revenue-event.schema.json   JSON Schema used to validate it
 onchain/
   lib/zivana/types.ak         FsDat/Statement/Context/RevenueBody datum types
-  validators/revenue_fact.ak  mint/spend validator + its 14 unit tests
+  validators/revenue_fact.ak  mint/spend validator + its 25 unit tests
   plutus.json                 compiled blueprint (generated by `aiken build`)
 src/
   types/fact.ts          TS types for the off-chain JSON-LD
@@ -419,7 +523,7 @@ src/
 scripts/
   gen-wallet.ts        one-off: generate a fresh testnet wallet
   validate-schema.ts   validate the JSON-LD against the JSON Schema
-  publish-fact.ts      validate, build the datum, mint + lock it on Preprod
+  publish-fact.ts      validate, build the datum, mint + lock it on Preprod (bounded validity range)
   query-fact.ts        find the latest UTxO, decode the datum, print the revenue amount
 tests/
   datum.test.ts        round-trip + golden-CBOR tests for the datum encoding
@@ -434,4 +538,4 @@ tests/
   entries under one `Statement`, or one UTxO per period).
 - Add a real reference-input-based "pointer" script if the validator script
   ever needs to be upgraded without invalidating already-published fact
-  statements — this is what Orcfax's real FSP script is for.
+  statements; this is what Orcfax's real FSP script is for.
