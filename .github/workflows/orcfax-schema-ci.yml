@@ -36,6 +36,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - run: npm install
+          cache: "npm"
+          cache-dependency-path: orcfax-schema/package-lock.json
+      - run: npm ci
       - run: npx tsc --noEmit
       - run: npm run test

@@ -321,10 +321,80 @@ test helper needed a bounded default range added, since they previously
 relied on `Transaction.placeholder`'s unbounded `interval.everything()`,
 which the new checks now correctly reject.
 
+## Fourth pass: dependency pinning, secret handling, display precision, CI reproducibility
+
+A lighter-weight scan raised four more findings, all confirmed against the
+actual code before being fixed:
+
+| Severity | Finding | Fix |
+|---|---|---|
+| Medium | Every dependency in `package.json` used caret ranges (`^0.5.5`); a minor or patch release from upstream could change behavior on a fresh install even though `package-lock.json` pins exact versions today | Pinned every dependency and devDependency to the exact version already resolved in `package-lock.json` |
+| Low | `gen-wallet.ts` printed the freshly generated seed phrase directly to stdout, where it could linger in terminal scrollback or any log aggregation a session gets piped through | Writes `WALLET_SEED`/`WALLET_ADDRESS` to a new gitignored file (`.env.wallet`, matching the existing `.env.*` pattern) with owner-only permissions (`0o600`) instead; only the address is printed |
+| Low | `query-fact.ts` displayed the revenue amount as `Number(amount_minor_units) / 100`, which assumes every currency uses 2 decimal places (JPY uses 0, BHD uses 3) and silently loses precision for amounts above `Number.MAX_SAFE_INTEGER` (~9 quadrillion) | Added `fromMinorUnits()` and `minorUnitDecimalsFor()` (`src/util/money.ts`): the former formats via string manipulation on the `bigint` directly (no floating-point division at all), the latter looks up the correct decimal count per ISO 4217 currency code with a default of 2 |
+| Low | The CI workflow ran `npm install`, which can silently upgrade dependencies past what `package-lock.json` records, defeating the point of committing a lockfile | Changed to `npm ci`, which installs exactly the locked versions and fails instead of drifting if `package.json` and the lockfile disagree |
+
+The money-formatting fix was proven against the actual failure mode, not just
+asserted: `Number(9_007_199_254_740_993_00n) / 100` (a value chosen to sit
+well past `Number.MAX_SAFE_INTEGER`) silently returns a different amount than
+the input, while `fromMinorUnits` on the same input returns the exact decimal
+string. `npm ci` was run locally against the newly-pinned `package.json` to
+confirm it still installs cleanly (a lockfile mismatch would make `npm ci`
+fail hard, unlike `npm install`, which is exactly the property being relied
+on here). Both new functions have a dedicated test file
+(`tests/money.test.ts`), run as part of `npm run test`.
+
+A later scan re-flagged the caret-version dependency finding above as
+outstanding; it wasn't. `package.json` has been exact-pinned since the fix
+described here, and re-checking confirms zero caret ranges remain. Nothing
+to fix, since it's already fixed, not a regression, and not new.
+
+## A finding that was disagreed with: participant is not cryptographically bound to the publisher
+
+The same scan also raised a HIGH-severity finding: that the on-chain
+validator doesn't verify the `participant` DID inside `RevenueBody` is
+"cryptographically controlled by or authorized by" the `publisher` key that
+signs the transaction, and recommended requiring that binding on-chain.
+
+Confirmed real as stated: `participant` has no on-chain validation of any
+kind right now, not even a length check, unlike every other body field
+(`currency`, `claim_hash`, `amount_minor_units`, `period_start`/`period_end`
+all got content guards in earlier rounds). That part of the finding is
+accurate and is new scope; no prior round touched `participant` at all.
+
+The suggested remediation was not adopted, though, because it contradicts
+what this system is for. `publisher` (bound to `context.collector` via the
+existing `datum_names_publisher` check, unchanged since the first build) is
+the trusted attestor: Zivana's oracle key. `participant` is the SME the
+attestation is *about*. The whole point of an oracle, stated directly in
+this ticket, is that the attestor and the subject of the attestation are
+different parties: "the Zivana oracle layer must attest to economic
+activity off-chain." This mirrors Orcfax's real protocol exactly: for a
+CER feed like ADA-USD, the `collector` attests to a fact about ADA; ADA
+doesn't sign anything or control a key matching the collector, and
+requiring that would make no sense. Requiring `participant`'s DID to be
+controlled by `publisher` here would mean the publisher could only ever
+attest to facts about itself, turning a third-party attestation oracle into
+a self-report system.
+
+It's also not achievable on-chain as described. A Plutus/Aiken validator
+can't resolve a `did:prism:...` identifier at runtime; that requires
+querying PRISM node infrastructure, which lives off-chain (in this
+monorepo's separate VAL-003 work) and has no on-chain-queryable credential
+registry this validator could check against. Building one would be a
+legitimate feature, but a substantially larger one, on the same order as
+Orcfax's own federated multi-notary system, which is already documented
+above as intentionally not reproduced here.
+
+What's left deliberately unfixed, then, is exactly the DID-control binding;
+what would be legitimate and consistent with the other content guards, a
+non-empty/length-bounded check on `participant`, was considered and
+intentionally not added either, to keep this note focused on the
+disagreement rather than mixing in an unrelated small fix.
+
 ## Testing
 
 ```bash
-npm run test           # TypeScript: datum encode/decode round-trip + golden-CBOR test
+npm run test           # TypeScript: datum encode/decode round-trip + golden-CBOR test + money formatting
 npm run test:onchain   # Aiken: aiken check, runs all 28 validator unit tests
 ```
 
@@ -351,7 +421,10 @@ layer.
 
 The TypeScript suite (`tests/datum.test.ts`) covers a plain round-trip, a
 round-trip with all-zero edge values, the `Publish`/`Revoke` redeemer
-encoding, and the golden-CBOR test described above.
+encoding, and the golden-CBOR test described above. `tests/money.test.ts`
+covers `minorUnitDecimalsFor`'s currency lookups, `fromMinorUnits` formatting
+across 0/2/3-decimal currencies, the large-amount precision fix, and a
+round-trip through `toMinorUnits`.
 
 ## Prerequisites
 
@@ -511,7 +584,7 @@ Fact statement found on-chain.
   created at:    2026-07-13T21:35:54.062Z
   participant:   did:prism:123456789abcdefghi
   period:        2026-05-01T00:00:00.000Z -> 2026-05-14T00:00:00.000Z
-  revenue:       500000 NGN
+  revenue:       500000.00 NGN
   claim hash:    bde25322044dd46ee5e2243bca15fbb1d0d7321355e90e1d7eda99f656ba988f
   collector pkh: fc7ba6ddaf68027fad8c2c47265081814dcc10dafa643e1644de7e05
 ```
@@ -557,17 +630,18 @@ onchain/
 src/
   types/fact.ts          TS types for the off-chain JSON-LD
   schema/validate.ts     shared ajv validation used by validate-schema.ts and publish-fact.ts
-  util/money.ts          decimal-safe currency-to-minor-units conversion
+  util/money.ts          decimal-safe minor-units conversion in both directions, per-currency decimals
   onchain/datum.ts       Lucid Data schemas mirroring the Aiken types
   onchain/script.ts      loads the blueprint, applies params, derives addresses
   services/orcfax.ts     Lucid + Blockfrost + wallet setup
 scripts/
-  gen-wallet.ts        one-off: generate a fresh testnet wallet
+  gen-wallet.ts        one-off: generate a fresh testnet wallet, seed written to .env.wallet (not stdout)
   validate-schema.ts   validate the JSON-LD against the JSON Schema
   publish-fact.ts      validate, build the datum, mint + lock it on Preprod (bounded validity range)
   query-fact.ts        find the latest UTxO, decode the datum, print the revenue amount
 tests/
   datum.test.ts        round-trip + golden-CBOR tests for the datum encoding
+  money.test.ts         minor-units conversion and per-currency decimal formatting
 ```
 
 ## Extension ideas

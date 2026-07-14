@@ -2,6 +2,7 @@ import { Data, toText } from "@lucid-evolution/lucid";
 import { getLucid } from "../src/services/orcfax";
 import { buildPublisherScript } from "../src/onchain/script";
 import { RevenueFactDatumSchema, type RevenueFactDatum } from "../src/onchain/datum";
+import { fromMinorUnits, minorUnitDecimalsFor } from "../src/util/money";
 
 async function main() {
   const { lucid, network } = await getLucid();
@@ -53,7 +54,10 @@ async function main() {
   );
 
   const currency = toText(datum.statement.body.currency);
-  const amountMajorUnits = Number(datum.statement.body.amount_minor_units) / 100;
+  const revenue = fromMinorUnits(
+    datum.statement.body.amount_minor_units,
+    minorUnitDecimalsFor(currency)
+  );
   const participant = toText(datum.statement.body.participant);
   const feedId = toText(datum.statement.feed_id);
   const periodStart = new Date(Number(datum.statement.body.period_start) * 1000);
@@ -66,7 +70,7 @@ async function main() {
   console.log("  created at:   ", createdAt.toISOString());
   console.log("  participant:  ", participant);
   console.log("  period:       ", periodStart.toISOString(), "->", periodEnd.toISOString());
-  console.log("  revenue:      ", amountMajorUnits, currency);
+  console.log("  revenue:      ", revenue, currency);
   console.log("  claim hash:   ", datum.statement.body.claim_hash);
   console.log("  collector pkh:", datum.context.collector);
 }

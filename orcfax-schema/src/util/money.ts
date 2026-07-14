@@ -41,3 +41,56 @@ export function toMinorUnits(value: number, decimals = 2): bigint {
   const minorUnits = BigInt(whole + paddedFraction);
   return negative ? -minorUnits : minorUnits;
 }
+
+/** ISO 4217 minor-unit exponents that differ from the common default of 2
+ * (e.g. JPY/KRW/VND have no minor unit at all; BHD/KWD/OMR/JOD use 3).
+ * Not exhaustive, just the well-known exceptions; anything absent here
+ * falls back to 2 in `minorUnitDecimalsFor`. */
+const CURRENCY_DECIMAL_EXCEPTIONS: Record<string, number> = {
+  BHD: 3,
+  BIF: 0,
+  CLP: 0,
+  DJF: 0,
+  GNF: 0,
+  IQD: 3,
+  ISK: 0,
+  JOD: 3,
+  JPY: 0,
+  KMF: 0,
+  KRW: 0,
+  KWD: 3,
+  LYD: 3,
+  OMR: 3,
+  PYG: 0,
+  RWF: 0,
+  TND: 3,
+  UGX: 0,
+  VND: 0,
+  VUV: 0,
+  XAF: 0,
+  XOF: 0,
+  XPF: 0,
+};
+
+export function minorUnitDecimalsFor(currency: string): number {
+  return CURRENCY_DECIMAL_EXCEPTIONS[currency.toUpperCase()] ?? 2;
+}
+
+/** Converts an integer count of minor units back to a decimal string,
+ * without floating-point division (`Number(bigint) / 100` loses precision
+ * above ~2^53 and silently assumes 2 decimal places regardless of
+ * currency). Returns a string, not a number, since the whole point is to
+ * avoid the precision loss a `number` would reintroduce for large amounts. */
+export function fromMinorUnits(amountMinorUnits: bigint, decimals = 2): string {
+  const negative = amountMinorUnits < 0n;
+  const abs = negative ? -amountMinorUnits : amountMinorUnits;
+
+  if (decimals === 0) {
+    return (negative ? "-" : "") + abs.toString();
+  }
+
+  const digits = abs.toString().padStart(decimals + 1, "0");
+  const whole = digits.slice(0, digits.length - decimals);
+  const fraction = digits.slice(digits.length - decimals);
+  return (negative ? "-" : "") + whole + "." + fraction;
+}
