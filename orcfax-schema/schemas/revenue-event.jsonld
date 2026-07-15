@@ -3,18 +3,26 @@
   "@type": "Claim",
   "identifier": "zivana-revenue-001",
   "dateCreated": "2026-05-15T10:00:00Z",
+  "temporalCoverage": "2026-05-01/2026-05-14",
   "text": "SME revenue for period 2026-05-01/2026-05-14",
   "about": {
-    "@type": "EconomicEvent",
-    "value": 500000,
-    "currency": "NGN",
-    "startDate": "2026-05-01",
-    "endDate": "2026-05-14",
-    "provider": {
+    "@type": "Observation",
+    "observationAbout": {
       "@type": "Person",
-      "identifier": "did:prism:123...",
+      "identifier": "did:prism:123456789abcdefghi",
       "name": "SME Operator"
+    },
+    "observationDate": "2026-05-14",
+    "variableMeasured": "revenue",
+    "value": {
+      "@type": "MonetaryAmount",
+      "currency": "NGN",
+      "value": 500000
     }
   },
-  "claimInterpreter": "zivana-oracle"
+  "claimInterpreter": {
+    "@type": "Organization",
+    "identifier": "zivana-oracle",
+    "name": "Zivana Oracle"
+  }
 }
